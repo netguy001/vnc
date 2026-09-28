@@ -1,0 +1,37 @@
+# Node dependencies
+node_modules/
+.npm/
+
+# Build artifacts
+dist/
+build/
+*.tsbuildinfo
+
+# Environment & Secrets
+.env
+.env.local
+.env.production
+*.pem
+*.key
+id_rsa
+id_ed25519
+admin.config.json
+
+# SQLite Databases & Local Runtime Data
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+data/
+uploads/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS and Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

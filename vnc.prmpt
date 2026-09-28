@@ -1,0 +1,1034 @@
+You are a senior staff-level full-stack engineer and systems engineer.
+
+I want you to build a production-quality LOCAL-FIRST web application called "ServerConsole".
+
+IMPORTANT:
+This is a real software project, not a mockup or UI-only demo.
+You must actually create the project files, install dependencies, implement the functionality, run the application, test it, and fix errors.
+
+============================================================
+1. PRODUCT
+============================================================
+
+Build a modern self-hosted server management console.
+
+The application should eventually allow me to manage Linux servers from one web interface:
+
+- VNC remote desktop
+- SSH terminal
+- SFTP file manager
+- Server connection management
+- Clipboard copy/paste
+- Keyboard controls
+- Mouse controls
+- Fullscreen VNC
+- Reconnect
+- Server status
+- CPU/RAM/disk/network information
+- Docker/container information
+- Logs
+- Authentication
+- Multiple servers
+
+For NOW, the application must run completely locally on my Windows 11 machine.
+
+Do NOT deploy anything to a cloud server.
+
+Do NOT require a paid service.
+
+Use open-source/free technologies wherever practical.
+
+The architecture must be designed so that the exact same application can later be Dockerized and deployed to a Contabo Ubuntu server.
+
+============================================================
+2. CORE TECHNOLOGY
+============================================================
+
+Use:
+
+Frontend:
+- React
+- TypeScript
+- Vite
+- Tailwind CSS
+- modern component architecture
+
+VNC:
+- noVNC
+- WebSocket/VNC connection
+- DO NOT implement the VNC/RFB protocol from scratch
+
+Terminal:
+- xterm.js
+- WebSocket-based terminal connection
+
+Backend:
+- Node.js
+- TypeScript
+- Fastify or Express
+- Prefer Fastify if there is no strong reason otherwise
+
+SSH:
+- Use a mature Node SSH library such as ssh2
+
+SFTP:
+- Use SSH/SFTP through the backend
+
+Database:
+- SQLite for local development
+- Design the data-access layer so PostgreSQL can replace SQLite later
+
+Containerization:
+- Docker support must be planned
+- Do not require Docker to run the first local development version
+
+Reverse proxy:
+- Nginx configuration should be added for future production deployment
+
+============================================================
+3. IMPORTANT ARCHITECTURAL RULE
+============================================================
+
+NEVER expose VNC, SSH, or SFTP credentials directly to the browser.
+
+The browser must communicate with the backend.
+
+Architecture:
+
+Browser
+   |
+   | HTTPS / WebSocket
+   v
+React frontend
+   |
+   v
+Node.js backend
+   |
+   +---- SSH ----> Linux server
+   |
+   +---- SFTP ---> Linux server
+   |
+   +---- VNC ----> VNC server
+
+The backend is responsible for:
+- connection management
+- credential handling
+- SSH connections
+- SFTP
+- VNC WebSocket proxying
+- server metadata
+- authentication
+- authorization
+
+============================================================
+4. SECURITY
+============================================================
+
+Treat this as infrastructure software.
+
+Do NOT:
+- hardcode passwords
+- hardcode private keys
+- put SSH credentials in React
+- expose VNC port directly to the browser
+- expose SSH credentials through API responses
+- store plaintext passwords unnecessarily
+- create public unauthenticated server-management endpoints
+
+For development, credentials may be entered through a local setup screen.
+
+Use secure patterns:
+- environment variables for application secrets
+- session-based authentication or secure JWT architecture
+- HTTP-only cookies where appropriate
+- CSRF protection where applicable
+- rate limiting
+- input validation
+- strict CORS configuration
+- WebSocket authentication
+- command/session authorization
+- server-side validation
+
+Clearly separate:
+PUBLIC configuration
+from
+SECRET configuration.
+
+Create a .env.example.
+
+Never commit .env.
+
+============================================================
+5. PROJECT STRUCTURE
+============================================================
+
+Use a clean monorepo structure similar to:
+
+server-console/
+|
+├── apps/
+│   ├── web/
+│   │   ├── src/
+│   │   ├── public/
+│   │   └── package.json
+│   │
+│   └── server/
+│       ├── src/
+│       └── package.json
+|
+├── packages/
+│   ├── shared/
+│   └── config/
+|
+├── docker/
+├── nginx/
+├── scripts/
+├── docs/
+├── .env.example
+├── docker-compose.yml
+├── package.json
+├── README.md
+└── LICENSE
+
+You may improve this structure if you have a strong technical reason.
+
+Keep frontend and backend clearly separated.
+
+============================================================
+6. UI / UX
+============================================================
+
+The UI must look like a serious infrastructure product.
+
+DO NOT create:
+- generic bootstrap-looking dashboards
+- excessive gradients
+- cartoon UI
+- huge cards
+- unnecessary animations
+- fake statistics
+- fake server data presented as real
+
+Design inspiration:
+- modern infrastructure dashboards
+- professional developer tools
+- terminal applications
+- cloud consoles
+
+Use:
+- dark theme by default
+- clean typography
+- compact spacing
+- subtle borders
+- clear status indicators
+- excellent keyboard interaction
+- responsive layout
+
+Main layout:
+
+----------------------------------------------------
+| ServerConsole                 User   Settings   |
+----------------------------------------------------
+| Servers       | Main workspace                  |
+|               |                                 |
+| Production    |                                 |
+|  ● Server 01  |                                 |
+|  ● Server 02  |                                 |
+|               |                                 |
+| Development   |                                 |
+|  ● Dev 01     |                                 |
+|               |                                 |
+----------------------------------------------------
+
+The application should have:
+
+1. Sidebar
+2. Server list
+3. Main workspace
+4. Top connection/status bar
+5. Bottom/context toolbar when viewing VNC
+
+============================================================
+7. MAIN PAGES
+============================================================
+
+Create these pages/routes:
+
+/login
+
+/dashboard
+
+/servers
+
+/servers/:id
+
+/servers/:id/console
+
+/servers/:id/terminal
+
+/servers/:id/files
+
+/servers/:id/monitor
+
+/settings
+
+============================================================
+8. DASHBOARD
+============================================================
+
+Dashboard should show actual information where available.
+
+Example:
+
+Server Overview
+
+┌────────────────────────────────────────────┐
+│ ● Production Server                        │
+│ Ubuntu 24.04                               │
+│ 49.x.x.x                                   │
+│                                            │
+│ CPU     34%                                │
+│ RAM     51%                                │
+│ Disk    62%                                │
+│                                            │
+│ [Open Console] [Terminal] [Files]          │
+└────────────────────────────────────────────┘
+
+Do not invent live values.
+
+If monitoring is not connected yet, explicitly display:
+
+"Monitoring unavailable"
+
+instead of fake numbers.
+
+============================================================
+9. SERVER MANAGEMENT
+============================================================
+
+Implement:
+
+Add Server
+
+Fields:
+
+Name
+Host/IP
+SSH Port
+SSH Username
+Authentication method
+
+Authentication:
+- Password
+- Private key
+
+Optional:
+VNC host
+VNC port
+VNC password
+
+Server group
+
+Description
+
+Test Connection
+
+Save Server
+
+Edit Server
+
+Delete Server
+
+Enable/disable server
+
+Connection status
+
+The UI must clearly show:
+
+Connected
+Connecting
+Disconnected
+Error
+
+============================================================
+10. VNC CONSOLE
+============================================================
+
+This is the primary feature.
+
+Use noVNC.
+
+Create a proper VNC viewer.
+
+Features:
+
+- connect
+- disconnect
+- reconnect
+- fullscreen
+- fit-to-screen
+- scale
+- resize
+- mouse input
+- keyboard input
+- Ctrl
+- Alt
+- Escape
+- Windows/Super key
+- function keys
+- clipboard
+- copy
+- paste
+- screenshot
+- connection status
+- latency/status indicator if available
+
+Toolbar:
+
+[Reconnect]
+[Ctrl]
+[Alt]
+[Esc]
+[Paste]
+[Copy]
+[Fit]
+[Fullscreen]
+
+The VNC viewer should occupy most of the workspace.
+
+Do not build a fake VNC screen.
+
+It must actually connect to a VNC server.
+
+============================================================
+11. VNC WEBSOCKET PROXY
+============================================================
+
+Implement backend VNC WebSocket proxying.
+
+Expected architecture:
+
+Browser
+   |
+WebSocket
+   |
+Node backend
+   |
+WebSocket proxy
+   |
+VNC server
+
+Do not require the browser to know the actual internal VNC address if the backend can safely proxy it.
+
+Validate:
+- authenticated user
+- server ID
+- authorization
+- VNC destination
+before opening the connection.
+
+Prevent arbitrary host/port proxying from user-controlled input.
+
+============================================================
+12. SSH TERMINAL
+============================================================
+
+Use xterm.js.
+
+Build a real terminal.
+
+Features:
+- shell
+- keyboard input
+- copy
+- paste
+- resize
+- scrollback
+- reconnect
+- disconnect
+- terminal tabs if practical
+
+UI:
+
+┌──────────────────────────────────────────────┐
+│ Terminal   ● Connected                      │
+├──────────────────────────────────────────────┤
+│ root@server:~# docker ps                     │
+│                                              │
+│ root@server:~#                               │
+│                                              │
+└──────────────────────────────────────────────┘
+
+The terminal must connect through the backend.
+
+Do not run arbitrary local shell commands through the browser.
+
+============================================================
+13. SFTP FILE MANAGER
+============================================================
+
+Implement a file manager.
+
+Features:
+
+- browse directories
+- navigate
+- upload
+- download
+- create directory
+- rename
+- delete
+- file size
+- modified time
+- permissions where available
+- refresh
+- breadcrumbs
+
+Example:
+
+/home/ubuntu/project
+
+[ Upload ] [ New Folder ] [ Refresh ]
+
+Name          Size       Modified
+-------------------------------------
+app/                     Sep 26
+server.js     12 KB      Sep 26
+package.json  2 KB       Sep 25
+
+Use SFTP through the backend.
+
+Do not expose raw SFTP credentials.
+
+============================================================
+14. MONITORING
+============================================================
+
+Build the monitoring architecture.
+
+Initially support Linux servers through SSH.
+
+Collect where possible:
+
+- CPU usage
+- memory usage
+- disk usage
+- uptime
+- load average
+- network statistics
+- process information
+
+Optional:
+Docker containers
+
+Show:
+
+CPU
+██████░░░░ 61%
+
+Memory
+█████░░░░░ 48%
+
+Disk
+███████░░░ 71%
+
+If data cannot be collected, display a clear unavailable state.
+
+Never fake metrics.
+
+============================================================
+15. DOCKER SUPPORT
+============================================================
+
+Add a Docker section.
+
+Display:
+
+Container
+Status
+Image
+CPU
+Memory
+
+Example:
+
+nginx       ● Running
+postgres    ● Running
+redis       ● Running
+api         ● Stopped
+
+Initially read-only.
+
+DO NOT implement destructive Docker controls until the architecture is secure.
+
+============================================================
+16. AUTHENTICATION
+============================================================
+
+For local MVP:
+
+Create a simple admin authentication flow.
+
+Do not hardcode credentials into frontend code.
+
+Use:
+- hashed password
+- secure session
+- HTTP-only cookie
+
+Create setup instructions:
+
+npm install
+npm run dev
+
+Then:
+
+http://localhost:5173
+
+On first run:
+Create administrator account.
+
+============================================================
+17. API
+============================================================
+
+Create a documented API.
+
+Examples:
+
+POST /api/auth/login
+POST /api/auth/logout
+GET  /api/auth/me
+
+GET    /api/servers
+POST   /api/servers
+GET    /api/servers/:id
+PUT    /api/servers/:id
+DELETE /api/servers/:id
+
+POST /api/servers/:id/test-connection
+
+GET /api/servers/:id/status
+
+GET /api/servers/:id/files
+
+POST /api/servers/:id/files/upload
+
+GET /api/servers/:id/files/download
+
+WebSocket:
+ /api/servers/:id/terminal
+
+WebSocket:
+ /api/servers/:id/vnc
+
+Use schema validation.
+
+Return consistent error responses.
+
+============================================================
+18. DATABASE
+============================================================
+
+Create a clean schema.
+
+At minimum:
+
+users
+
+servers
+
+server_credentials
+
+server_groups
+
+sessions
+
+audit_logs
+
+Do not store secrets unnecessarily.
+
+Credentials must be encrypted or protected appropriately.
+
+Create migrations.
+
+============================================================
+19. ERROR HANDLING
+============================================================
+
+This is important.
+
+Handle:
+
+- server offline
+- SSH authentication failure
+- VNC authentication failure
+- timeout
+- connection refused
+- WebSocket disconnect
+- invalid credentials
+- SFTP errors
+- file upload failure
+- permission denied
+- server unavailable
+
+Give useful messages.
+
+Bad:
+
+"Something went wrong."
+
+Good:
+
+"SSH connection failed: authentication rejected by the server."
+
+Never leak:
+- private keys
+- passwords
+- internal stack traces
+- sensitive connection information
+
+============================================================
+20. LOGGING
+============================================================
+
+Backend logging should include:
+
+timestamp
+request ID
+user
+operation
+server
+result
+duration
+
+Do not log:
+- passwords
+- private keys
+- tokens
+- session secrets
+
+============================================================
+21. TESTING
+============================================================
+
+Create tests for:
+
+Authentication
+Server CRUD
+SSH connection handling
+VNC WebSocket authentication
+SFTP
+API validation
+Authorization
+Error handling
+
+At minimum provide:
+
+unit tests
+API tests
+
+If practical add:
+Playwright end-to-end tests.
+
+============================================================
+22. LOCAL DEVELOPMENT
+============================================================
+
+The application must work with:
+
+Windows 11
+Node.js
+npm
+
+Do not assume Linux-only commands for the developer workflow.
+
+Provide:
+
+npm install
+
+npm run dev
+
+npm run build
+
+npm run test
+
+npm run lint
+
+npm run format
+
+Use cross-platform scripts where possible.
+
+============================================================
+23. LOCAL TEST SERVER
+============================================================
+
+Because I want to test the VNC functionality locally, create documentation for running a disposable Linux/VNC test environment.
+
+Prefer Docker if practical.
+
+For example:
+
+Ubuntu
++
+XFCE
++
+TigerVNC
+
+The goal is:
+
+Windows
+   ↓
+localhost ServerConsole
+   ↓
+local VNC test container
+
+This lets me test the entire VNC pipeline without touching my production Contabo server.
+
+============================================================
+24. DOCKER
+============================================================
+
+Create Docker support for:
+
+frontend
+backend
+database
+
+Also provide a docker-compose.yml.
+
+Production architecture:
+
+Nginx
+  |
+  +---- Web frontend
+  |
+  +---- API
+          |
+          +---- SQLite/PostgreSQL
+          |
+          +---- SSH
+          |
+          +---- SFTP
+          |
+          +---- VNC WebSocket
+
+The application must eventually be deployable to a single Ubuntu VPS.
+
+============================================================
+25. DOCUMENTATION
+============================================================
+
+Create:
+
+README.md
+
+docs/architecture.md
+
+docs/security.md
+
+docs/local-development.md
+
+docs/deployment.md
+
+docs/vnc.md
+
+docs/ssh.md
+
+docs/sftp.md
+
+docs/api.md
+
+Explain:
+
+- architecture
+- how VNC works
+- how WebSocket proxy works
+- how SSH works
+- how credentials are stored
+- how to add a server
+- how to run locally
+- how to deploy later
+- security considerations
+
+============================================================
+26. DEVELOPMENT RULES
+============================================================
+
+Do not stop after generating files.
+
+Actually:
+
+1. Inspect the project directory.
+2. Create the project.
+3. Install dependencies.
+4. Run the frontend.
+5. Run the backend.
+6. Run tests.
+7. Fix compilation errors.
+8. Fix runtime errors.
+9. Verify the application in a browser if browser tooling is available.
+10. Verify API endpoints.
+11. Verify WebSocket functionality.
+12. Verify VNC connection architecture.
+13. Verify clipboard functionality.
+14. Verify SSH terminal architecture.
+15. Verify SFTP architecture.
+
+If something cannot be tested because a real server is unavailable, create a local test environment or clearly document what remains untested.
+
+Do not claim something works unless you actually tested it.
+
+============================================================
+27. CODE QUALITY
+============================================================
+
+Write clean, maintainable TypeScript.
+
+Use:
+- strict TypeScript
+- ESLint
+- Prettier
+- environment configuration
+- typed API contracts
+- reusable React components
+- service layer
+- repository/data-access layer
+- centralized error handling
+- structured logging
+
+Avoid:
+- giant files
+- duplicated logic
+- magic strings
+- hardcoded credentials
+- unnecessary dependencies
+- unnecessary abstractions
+
+============================================================
+28. IMPORTANT MVP PRIORITY
+============================================================
+
+Do not spend all the time making the UI beautiful while core functionality is missing.
+
+Priority:
+
+1. Application boots
+2. Authentication
+3. Server management
+4. VNC connection
+5. Clipboard
+6. SSH terminal
+7. SFTP
+8. Monitoring
+9. Docker information
+10. UI polish
+11. Tests
+12. Documentation
+13. Docker deployment
+
+A working ugly feature is better than a beautiful fake feature.
+
+============================================================
+29. FUTURE ARCHITECTURE
+============================================================
+
+Design so these can be added later without rewriting everything:
+
+- multiple users
+- RBAC
+- 2FA
+- passkeys
+- server agents
+- WebRTC
+- RDP
+- Kubernetes
+- Docker controls
+- systemd management
+- service logs
+- server alerts
+- CPU/RAM alerts
+- notifications
+- audit trail
+- team management
+- server tagging
+- command snippets
+- command history
+- SSH key management
+- bastion/jump hosts
+
+Do NOT implement all of these now.
+
+Build clean extension points.
+
+============================================================
+30. FINAL ACCEPTANCE CRITERIA
+============================================================
+
+The project is considered successful only if:
+
+[ ] Frontend runs locally
+[ ] Backend runs locally
+[ ] Login works
+[ ] Server can be added
+[ ] Server connection can be tested
+[ ] VNC viewer is real and uses noVNC
+[ ] VNC mouse works
+[ ] VNC keyboard works
+[ ] VNC clipboard works
+[ ] VNC reconnect works
+[ ] VNC fullscreen works
+[ ] SSH terminal works
+[ ] SSH copy/paste works
+[ ] SFTP browser works
+[ ] Upload works
+[ ] Download works
+[ ] Server status works
+[ ] Error states work
+[ ] Credentials are not exposed to frontend
+[ ] No secrets are committed
+[ ] API validation works
+[ ] Authentication protects WebSocket connections
+[ ] Tests pass
+[ ] Production Docker configuration exists
+[ ] Documentation exists
+
+============================================================
+31. HOW YOU SHOULD WORK
+============================================================
+
+Do not ask me to manually create dozens of files unless absolutely necessary.
+
+Work incrementally.
+
+First inspect the current directory.
+
+Then create the application skeleton.
+
+Then implement the MVP.
+
+After every major stage:
+- run it
+- test it
+- fix it
+
+If you encounter a technical problem, diagnose the root cause rather than applying random changes.
+
+Do not replace working libraries with custom implementations without a strong reason.
+
+Do not simplify the VNC requirement into a fake viewer.
+
+Do not use mock data for functionality that should be real.
+
+At the end, provide:
+
+1. What was built
+2. Exact commands to run it
+3. Local URLs
+4. Test results
+5. What is fully functional
+6. What requires a real VNC/SSH server
+7. How to connect my Contabo server later
+8. Any remaining limitations
+
+START NOW.

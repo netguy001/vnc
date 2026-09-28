@@ -1,0 +1,5 @@
+{
+  "username": "admin",
+  "password": "change_this_password",
+  "_instructions": "Edit username or password here anytime. ServerConsole will automatically accept the new credentials."
+}
