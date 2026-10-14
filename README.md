@@ -28,84 +28,95 @@
 ## ✨ Core Features
 
 ### 🖥️ VNC Remote Desktop Console
-Connect to any server's graphical desktop directly in the browser via WebSocket-proxied VNC. Full clipboard sync (copy/paste), live video stream, reconnect logic, and Quick-Paste bar for command injection.
-
-![VNC Console](docs/assets/ioc-vnc-console.png)
+Connect to any server's graphical desktop directly in the browser via WebSocket-proxied VNC:
+- **RFB 3.8 Protocol Bridge** — Real-time frame buffer streaming with hardware-accelerated canvas rendering.
+- **Bi-Directional Clipboard** — Live copy/paste synchronization between browser and remote session.
+- **Quick-Paste & Macros** — 1-click execution for administrative shortcuts (`Ctrl+Alt+Del`, `Win`, `Esc`, `Tab`, command injection).
+- **Auto-Scale & Fullscreen** — Dynamic viewport fitting and seamless low-latency reconnect logic.
 
 ---
 
 ### 💻 SSH Terminal (Browser-Native)
-Full xterm.js-powered SSH terminal with real PTY support, automatic column/row resize, ANSI color rendering, and a persistent WebSocket tunnel. No local SSH client required.
+Full xterm.js-powered SSH terminal running on real Linux PTY pseudo-terminals over a persistent WebSocket tunnel:
+- **Multi-Tab Workspace** — Run multiple concurrent terminal sessions per server without losing state.
+- **Snippets Library** — Store, organize, and execute reusable shell commands across your fleet.
+- **Terminal Capabilities** — 256 ANSI colors, mouse events, dynamic column/row resizing, and clipboard integration.
 
 ---
 
 ### 📁 SFTP File Manager
-Drag-and-drop file manager over SFTP. Browse, upload, download, rename, create directories, and delete files — all from the browser. Supports recursive directory deletion.
+High-performance SFTP file browser built directly into the web console:
+- **File Operations** — Upload, download, rename, preview, and recursively delete files and directories.
+- **Integrated Code Editor** — Edit remote configuration files (`nginx.conf`, `.env`, systemd units) directly in-browser.
+- **Drag-and-Drop** — Instant multi-file uploads with progress tracking.
 
 ---
 
 ### 📊 System Telemetry & Metrics
-
-![System Telemetry](docs/assets/ioc-telemetry.png)
-
-Real-time server health monitoring:
-- **CPU Usage** — per-core utilization with load averages (1m, 5m, 15m)
-- **Memory** — total/used/free RAM and Swap
-- **Disk I/O** — per-partition usage with read/write throughput
-- **System Info** — hostname, OS distro, kernel version, uptime
+Real-time Linux telemetry streamed over WebSocket with zero polling overhead:
+- **CPU Utilization** — Per-core load metrics, usage percentages, and system load averages (1m, 5m, 15m).
+- **Memory & Swap** — Real-time breakdown of total, used, free RAM, cache buffers, and swap usage.
+- **Disk & Mounts** — Per-partition disk utilization with live read/write I/O throughput.
+- **Historical Metrics** — 7-day retention database with interactive sparklines and capacity trending.
 
 ---
 
 ### 🐳 Docker Container Monitor
-Live Docker container overview showing container names, images, status (`running`, `exited`, `paused`), CPU/memory usage, exposed ports, and volume mounts. One-click start/stop/restart actions.
+Full visibility into local and remote Docker engines:
+- **Container Fleet Status** — Real-time monitoring of all running, exited, and paused containers.
+- **Resource Analytics** — Per-container CPU%, RAM footprint, mapped network ports, and volume bindings.
+- **Lifecycle Management** — 1-click Start, Stop, Restart, and live log stream following.
 
 ---
 
 ### 🛡️ Security & Firewall Console
-
-![Security & Firewall](docs/assets/ioc-security-firewall.png)
-
-Comprehensive server hardening dashboard:
-- **UFW Firewall** — Enable/disable firewall, view and manage allow/deny rules, add rules by port/protocol/IP/comment
-- **Open Port Scanner** — Discover all listening services and their bound addresses
-- **Recent SSH Logins** — Audit successful and failed authentication attempts with GeoIP enrichment
-- **Fail2Ban Integration** — View active jails, banned IPs, total bans; one-click unban
-- **Security Audit & Hardening** — Automated CIS-benchmark checks (SSH root login, password auth, fail2ban, unattended-upgrades, AppArmor, kernel parameters) with remediation recommendations
-- **Pending System Updates** — Security and regular package update counts
-
-![Hardening Audit](docs/assets/ioc-hardening-audit.png)
+Comprehensive server hardening dashboard following CIS-benchmark recommendations:
+- **UFW Firewall Controller** — Enable/disable firewall, manage inbound/outbound rules by port/protocol/IP, with 1-click anti-brute-force rate limiting.
+- **Open Port Scanner** — Instant discovery of all listening daemons, bound network interfaces, and socket states.
+- **Authentication Audits** — GeoIP-enriched tracking of successful and failed SSH login attempts.
+- **Fail2Ban Integration** — View active jails, inspect banned IPs, and trigger 1-click IP unbans.
+- **Automated Hardening Checks** — Evaluates SSH root login, password auth, unattended upgrades, AppArmor, and sysctl hardening.
 
 ---
 
 ### 🌐 Network Monitoring & Traffic Analytics
+Full-stack Linux network observability and remote diagnostic tooling:
+- **Interfaces & Throughput** — Live RX/TX throughput rates, cumulative bandwidth, MTU, and packet error/drop counters.
+- **Active Sockets & Peer Tracker** — Real-time socket inspector (`ss -ant`) with connection filtering (`ESTABLISHED`, `LISTEN`, `TIME-WAIT`) and remote IP peer ranking.
+- **Routing & DNS Resolver** — Inspect default gateway routes, kernel routing tables (`ip route`), and system nameservers (`/etc/resolv.conf`).
+- **In-Browser Diagnostics** — Run ICMP Ping tests, DNS queries, and outbound TCP Port Probes directly from remote host targets:
 
-![Network Interfaces](docs/assets/ioc-network-interfaces.png)
+| Tool | Capability | Metrics Provided |
+|------|------------|------------------|
+| 🏓 **ICMP Ping** | Outbound host reachability test | Packet loss %, min/avg/max RTT, raw ping output |
+| 🔍 **DNS Lookup** | Query domain nameservers | IP address resolution, query latency, raw dig output |
+| 🔌 **TCP Port Probe** | Test outbound firewall reachability | Connection status (`OPEN` / `CLOSED`), handshake latency |
 
-Full-stack Linux network observability:
+---
 
-**Interfaces & Throughput**  
-Per-interface RX/TX bytes, packet counts, error/drop counters, MTU, IPv4/IPv6, MAC address, and link status (`UP` / `DOWN`) for all physical and virtual interfaces (`eth0`, `docker0`, bridge/veth adapters, `lo`).
+### ⚡ Real-time Updates
+Telemetry, network throughput (live ↓/↑ rates), Docker state, server status and alerts are **pushed over a WebSocket** (`/api/live`) - no polling, no refresh button. A LIVE badge shows connection health and reconnects automatically; polling on the server only runs while someone is watching.
 
-**Active Sockets & Peer Tracker**  
-Live `ss -ant` socket table with connection state filtering (`ESTABLISHED`, `LISTEN`, `TIME-WAIT`, `CLOSE-WAIT`), per-daemon process association, and Top Remote IPs ranked by connection count.
+### 📈 Metrics History & Alerting
+A background collector samples every server each minute (`METRICS_INTERVAL_SEC`), keeps 7 days of history for sparklines and charts, and evaluates **alert rules** (CPU, memory, disk, load, unreachable - sustained for N minutes). Alerts notify **Telegram, Discord, Slack or any webhook** on fire and on recovery.
 
-![Active Sockets](docs/assets/ioc-active-sockets.png)
+### ⚙️ Services, Logs & Docker Actions
+Browse and start/stop/restart **systemd services**, search **journal / unit / `/var/log` / container logs** with live follow, and control Docker containers - all with input validation and audit logging.
 
-**Routing Table & DNS Resolver**  
-Default gateway, egress interface, kernel IP routing table (`ip route`), and configured DNS nameservers from `/etc/resolv.conf`.
+### 📜 Runbooks
+Save shell scripts, run them on one server, a group or all servers (manually or on an interval), and review per-server output and exit codes.
 
-![Routing & DNS](docs/assets/ioc-routing-dns.png)
+### 🧩 Plugins
+Drop-in extensions with approved permissions, their own pages and API endpoints. Ships with an **Uptime & SSL checker** and a **Prometheus exporter**. See [docs/plugins.md](docs/plugins.md).
 
-**Interactive Diagnostics Console**  
-Run live network diagnostics directly from the server, from your browser:
+### 🔐 Access Control
+Roles (viewer / operator / admin), user management, **TOTP 2FA** with recovery codes, **API tokens**, login throttling, and **SSH host-key pinning**. See [docs/security.md](docs/security.md).
 
-| Tool | Description |
-|------|-------------|
-| 🏓 **ICMP Ping** | Packet loss %, min/avg/max RTT, raw output |
-| 🔍 **DNS Lookup** | Resolve domain → IP(s), query latency, raw dig output |
-| 🔌 **TCP Port Probe** | Test outbound reachability to any host:port |
+### 🤖 AI Assistant (optional)
+Set `ANTHROPIC_API_KEY` to get advice-only health analysis of a server snapshot (secrets redacted, consent required, never executes commands).
 
-![Diagnostics Console](docs/assets/ioc-diagnostics.png)
+### 🖱️ Multi-tab Terminal
+Several independent SSH shells per server that stay alive while you browse other tabs.
 
 ---
 
@@ -201,9 +212,14 @@ The launcher automatically:
 ```env
 PORT=3001
 NODE_ENV=development
+HOST=127.0.0.1                  # 0.0.0.0 to listen on the network (use TLS!)
 JWT_SECRET=generated_automatically
 MASTER_KEY=generated_automatically
 DATABASE_PATH=./data/server_console.sqlite
+METRICS_INTERVAL_SEC=60         # background telemetry sampling (min 15)
+PLUGINS_DIR=./plugins
+COOKIE_SECURE=false             # true behind HTTPS
+ANTHROPIC_API_KEY=              # optional: enables the AI assistant
 ```
 
 ---
@@ -224,8 +240,10 @@ DATABASE_PATH=./data/server_console.sqlite
 
 ## 🔒 Security Notes
 
-- All server credentials are **encrypted at rest** using AES-256-GCM with the `MASTER_KEY` from `.env`
+- All server credentials are **encrypted at rest** using AES-256-GCM with the `MASTER_KEY` from `.env` (if none is set, a random key is generated into `data/secrets.json` - **back it up**)
+- **Change the default `admin` / `admin1234` credentials** in `admin.config.json` before exposing the console to anyone else
 - JWT tokens expire after **7 days** (configurable)
+- The backend listens on `127.0.0.1` by default; set `HOST=0.0.0.0` only behind a TLS reverse proxy (and `COOKIE_SECURE=true`)
 - The application is designed for **private network / VPN use**
 - Do **not** expose port 3001 or 5173 directly to the public internet without a reverse proxy with TLS
 
@@ -254,7 +272,7 @@ npm test
 
 ## 🧪 Tests
 
-19 automated tests covering:
+Automated tests covering:
 - Auth API (setup, login, JWT validation)
 - Server CRUD operations
 - SSH/VNC connection probing
@@ -262,10 +280,12 @@ npm test
 - Docker container monitoring
 - Security overview & firewall API
 - Network telemetry & diagnostics (ping, DNS, port probe)
+- Role policy, alert engine, login throttling
+- TOTP (RFC 6238 vectors), API tokens, 2FA recovery codes, last-admin protection
+- Shell-injection guards for logs, services, containers, firewall and fail2ban inputs
 
 ```bash
 npm test
-# → 19 passed (2 test files)
 ```
 
 ---

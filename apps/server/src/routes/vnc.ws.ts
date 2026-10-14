@@ -1,7 +1,7 @@
 import { WebSocket } from 'ws';
 import net from 'node:net';
 import { FastifyInstance, FastifyRequest } from 'fastify';
-import { authService } from '../services/auth.service.js';
+import { authenticateWebSocket } from '../services/security-guard.js';
 import { serverService } from '../services/server.service.js';
 import { auditService } from '../services/audit.service.js';
 
@@ -9,28 +9,17 @@ export function registerVncWebSocket(fastify: FastifyInstance): void {
   fastify.get(
     '/api/servers/:id/vnc',
     { websocket: true },
-    async (connection: any, req: FastifyRequest<{ Params: { id: string }; Querystring: { token?: string } }>) => {
+    async (connection: any, req: FastifyRequest<{ Params: { id: string }; Querystring: Record<string, never> }>) => {
       const socket: WebSocket = connection.socket || connection;
       const { id } = req.params;
 
-      // 1. Authenticate user from cookie or query param
-      let token = (req.cookies as any)?.token || (req.query as any)?.token;
-      if (!token && req.raw.url) {
-        try {
-          const parsedUrl = new URL(req.raw.url, 'http://localhost');
-          token = parsedUrl.searchParams.get('token');
-        } catch {}
-      }
-      if (!token) {
-        socket.close(4001, 'Unauthorized: missing token');
+      // 1. Authenticate via session cookie + Origin check (no tokens in the URL)
+      const authResult = authenticateWebSocket(req, 'operator');
+      if (!('user' in authResult)) {
+        socket.close(authResult.code, authResult.reason);
         return;
       }
-
-      const user = authService.verifyToken(token);
-      if (!user) {
-        socket.close(4001, 'Unauthorized: invalid token');
-        return;
-      }
+      const user = authResult.user;
 
       // 2. Fetch server and credentials
       const creds = serverService.getDecryptedCredentials(id);

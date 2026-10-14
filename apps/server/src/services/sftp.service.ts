@@ -2,6 +2,7 @@ import { SFTPWrapper } from 'ssh2';
 import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { InternalServerCredentials } from './server.service.js';
+import { shQuote } from './shell.js';
 import { sshService } from './ssh.service.js';
 import { SftpFileItem } from '@server-console/shared';
 
@@ -146,12 +147,86 @@ export class SftpService {
   }
 
   /**
+   * Read a remote file's full contents as UTF-8 text (for the inline editor).
+   * Caps at 2MB to avoid loading huge binaries into memory/browser.
+   */
+  async readFileAsText(creds: InternalServerCredentials, remoteFilePath: string): Promise<string> {
+    const MAX_BYTES = 2 * 1024 * 1024;
+    const { client, sftp } = await this.getSftpSession(creds);
+
+    return new Promise((resolve, reject) => {
+      const stream = sftp.createReadStream(remoteFilePath);
+      const chunks: Buffer[] = [];
+      let total = 0;
+      let settled = false;
+
+      stream.on('data', (chunk: Buffer) => {
+        total += chunk.length;
+        if (total > MAX_BYTES) {
+          if (!settled) {
+            settled = true;
+            stream.destroy();
+            client.end();
+            reject(new Error('File is too large to edit in the browser (limit 2MB)'));
+          }
+          return;
+        }
+        chunks.push(chunk);
+      });
+
+      stream.on('end', () => {
+        if (settled) return;
+        settled = true;
+        client.end();
+        resolve(Buffer.concat(chunks).toString('utf8'));
+      });
+
+      stream.on('error', (err: Error) => {
+        if (settled) return;
+        settled = true;
+        client.end();
+        reject(new Error(`Failed to read file: ${err.message}`));
+      });
+    });
+  }
+
+  /**
+   * Overwrite a remote file with UTF-8 text content (for the inline editor's Save).
+   */
+  async writeFileFromText(creds: InternalServerCredentials, remoteFilePath: string, content: string): Promise<void> {
+    const { client, sftp } = await this.getSftpSession(creds);
+
+    return new Promise((resolve, reject) => {
+      const writeStream = sftp.createWriteStream(remoteFilePath);
+
+      writeStream.on('finish', () => {
+        client.end();
+        resolve();
+      });
+
+      writeStream.on('error', (err: Error) => {
+        client.end();
+        reject(new Error(`Failed to save file: ${err.message}`));
+      });
+
+      writeStream.end(Buffer.from(content, 'utf8'));
+    });
+  }
+
+  /**
    * Delete a file or directory
    */
   async deleteItem(creds: InternalServerCredentials, remotePath: string, recursive = false): Promise<void> {
+    const normalized = remotePath.trim();
+    if (!normalized || normalized === '/' || normalized === '.' || normalized === '..') {
+      throw new Error(`Refusing to delete unsafe path "${remotePath}"`);
+    }
+
     if (recursive) {
-      // Use rm -rf via ssh command for reliable recursive directory deletion
-      await sshService.executeCommand(creds, `rm -rf "${remotePath.replace(/"/g, '\\"')}"`);
+      // Use rm -rf via ssh command for reliable recursive directory deletion. The path is single-quoted so
+      // $VARS, backticks and $(...) in a file name are never expanded by the remote shell; `--` stops
+      // option parsing for names starting with "-". The root-path guard above blocks `rm -rf /`.
+      await sshService.executeCommand(creds, `rm -rf -- ${shQuote(normalized)}`);
       return;
     }
 

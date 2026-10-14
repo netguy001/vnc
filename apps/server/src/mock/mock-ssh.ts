@@ -147,8 +147,8 @@ export class MockSshServer {
                       '===SESSIONS===\n' +
                       'admin    pts/0    192.168.1.100    10:00   0.00s  w\n' +
                       '===FAILED_LOGINS===\n' +
-                      'Sep 26 09:12:34 vmi3389877 sshd[4567]: Failed password for root from 185.220.101.5 port 41234 ssh2\n' +
-                      'Sep 26 09:14:22 vmi3389877 sshd[4568]: Failed password for invalid user admin from 185.220.101.5 port 41235 ssh2\n' +
+                      'Sep 26 09:12:34 srv-node-01 sshd[4567]: Failed password for root from 185.220.101.5 port 41234 ssh2\n' +
+                      'Sep 26 09:14:22 srv-node-01 sshd[4568]: Failed password for invalid user admin from 185.220.101.5 port 41235 ssh2\n' +
                       '===FAIL2BAN===\n' +
                       'Status\n' +
                       '|- Number of jail:      1\n' +

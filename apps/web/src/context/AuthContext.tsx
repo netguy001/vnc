@@ -6,10 +6,11 @@ interface AuthContextType {
   user: UserDTO | null;
   isLoading: boolean;
   isInitialized: boolean;
-  login: (data: { username: string; password: string }) => Promise<void>;
+  login: (data: { username: string; password: string; totp?: string }) => Promise<void>;
   setup: (data: { username: string; password: string; email?: string }) => Promise<void>;
   logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;
+  setUser: (user: UserDTO) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -46,7 +47,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkAuth();
   }, []);
 
-  const login = async (data: { username: string; password: string }) => {
+  const login = async (data: { username: string; password: string; totp?: string }) => {
     const res = await api.login(data);
     setUser(res.user);
     setIsInitialized(true);
@@ -73,6 +74,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setup,
         logout,
         refreshAuth: checkAuth,
+        setUser,
       }}
     >
       {children}

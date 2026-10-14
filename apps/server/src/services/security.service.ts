@@ -1,4 +1,5 @@
 import { InternalServerCredentials } from './server.service.js';
+import { shQuote, badRequest } from './shell.js';
 import { sshService } from './ssh.service.js';
 import {
   ServerSecurityOverview,
@@ -234,7 +235,7 @@ fi
     const failedLogins: FailedLoginAttempt[] = [];
     for (const fLine of failedRaw.split('\n')) {
       if (!fLine.trim()) continue;
-      // Example: Sep 26 08:30:12 vmi3389877 sshd[1234]: Failed password for root from 192.168.1.50 port 54321 ssh2
+      // Example: Sep 26 08:30:12 srv-node-01 sshd[1234]: Failed password for root from 192.168.1.50 port 54321 ssh2
       const ipMatch = fLine.match(/from\s+([0-9a-fA-F:.]+)/);
       const userMatch = fLine.match(/for\s+(?:invalid\s+user\s+)?([^\s]+)\s+from/);
       const timeMatch = fLine.match(/^([A-Za-z]+\s+\d+\s+[\d:]+)/);
@@ -442,15 +443,23 @@ fi
     const { port, protocol = 'any', action = 'allow', fromIp, comment } = input;
 
     // Validate port / service
-    const cleanPort = port.trim();
+    const cleanPort = String(port ?? '').trim();
     if (!cleanPort) {
-      throw new Error('Port is required (e.g. 22 or 80 or 8000:8080)');
+      throw badRequest('Port is required (e.g. 22 or 80 or 8000:8080)');
+    }
+    // Every value below ends up in a root shell command, so each is validated against a strict pattern.
+    if (!/^(\d{1,5}(:\d{1,5})?|[A-Za-z0-9_-]{1,30})$/.test(cleanPort)) throw badRequest('Invalid port or service name');
+    if (!['allow', 'deny', 'reject', 'limit'].includes(String(action))) throw badRequest('Invalid action');
+    if (!['any', 'tcp', 'udp'].includes(String(protocol))) throw badRequest('Invalid protocol');
+    const source = fromIp?.trim();
+    if (source && source !== 'any' && source !== 'Anywhere' && !/^[0-9a-fA-F:.]{2,45}(\/\d{1,3})?$/.test(source)) {
+      throw badRequest('Invalid source address');
     }
 
     let cmd = `ufw ${action}`;
 
-    if (fromIp && fromIp.trim() && fromIp !== 'any' && fromIp !== 'Anywhere') {
-      cmd += ` from ${fromIp.trim()} to any port ${cleanPort}`;
+    if (source && source !== 'any' && source !== 'Anywhere') {
+      cmd += ` from ${source} to any port ${cleanPort}`;
       if (protocol && protocol !== 'any') {
         cmd += ` proto ${protocol}`;
       }
@@ -462,7 +471,7 @@ fi
     }
 
     if (comment && comment.trim()) {
-      cmd += ` comment "${comment.trim().replace(/"/g, '')}"`;
+      cmd += ` comment ${shQuote(comment.trim().slice(0, 100))}`;
     }
 
     const output = await sshService.executeCommand(creds, cmd, 10000);
@@ -476,8 +485,8 @@ fi
    * Deletes a UFW rule by rule number
    */
   async deleteFirewallRule(creds: InternalServerCredentials, ruleNumber: number): Promise<{ success: boolean; message: string }> {
-    if (!ruleNumber || ruleNumber <= 0) {
-      throw new Error('Valid rule number is required');
+    if (!Number.isInteger(ruleNumber) || ruleNumber <= 0) {
+      throw badRequest('Valid rule number is required');
     }
 
     const cmd = `echo "y" | ufw delete ${ruleNumber}`;
@@ -505,9 +514,11 @@ fi
    */
   async unbanIp(creds: InternalServerCredentials, jail: string, ip: string): Promise<{ success: boolean; message: string }> {
     if (!ip || !jail) {
-      throw new Error('Both jail name and IP address are required');
+      throw badRequest('Both jail name and IP address are required');
     }
-    const cmd = `fail2ban-client set ${jail.trim()} unbanip ${ip.trim()}`;
+    if (!/^[A-Za-z0-9_.-]{1,64}$/.test(jail.trim())) throw badRequest('Invalid jail name');
+    if (!/^[0-9a-fA-F:.]{2,45}$/.test(ip.trim())) throw badRequest('Invalid IP address');
+    const cmd = `fail2ban-client set ${shQuote(jail.trim())} unbanip ${shQuote(ip.trim())}`;
     const output = await sshService.executeCommand(creds, cmd, 10000);
     return {
       success: true,

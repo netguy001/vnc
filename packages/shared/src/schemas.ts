@@ -3,6 +3,7 @@ import { z } from 'zod';
 export const LoginSchema = z.object({
   username: z.string().min(3).max(50),
   password: z.string().min(6).max(100),
+  totp: z.string().max(20).optional(),
 });
 
 export const SetupSchema = z.object({
@@ -27,6 +28,8 @@ export const ServerCreateSchema = z.object({
   serverGroup: z.string().max(50).optional().default('Default'),
   description: z.string().max(500).optional(),
   isEnabled: z.boolean().optional().default(true),
+  tags: z.array(z.string().min(1).max(30)).max(20).optional().default([]),
+  isFavorite: z.boolean().optional().default(false),
 });
 
 export const ServerUpdateSchema = ServerCreateSchema.partial();
@@ -47,4 +50,29 @@ export const RenameSchema = z.object({
 export const DeletePathSchema = z.object({
   path: z.string().min(1),
   recursive: z.boolean().optional().default(false),
+});
+
+export const UpdatePreferencesSchema = z.object({
+  themeMode: z.enum(['dark', 'light', 'system']).optional(),
+  dashboardRefreshSeconds: z.number().int().min(5).max(300).optional(),
+  defaultLandingTab: z.string().max(50).optional(),
+  defaultSshPort: z.number().int().min(1).max(65535).optional(),
+  defaultSshUsername: z.string().max(100).optional(),
+  defaultVncPort: z.number().int().min(1).max(65535).optional(),
+});
+
+export const CommandSnippetCreateSchema = z.object({
+  label: z.string().min(1).max(100),
+  command: z.string().min(1).max(2000),
+  serverId: z.string().optional(),
+});
+
+export const ChangePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8).max(100),
+});
+
+export const UpdateAccountSchema = z.object({
+  username: z.string().min(3).max(50).optional(),
+  email: z.string().email().optional().or(z.literal('')),
 });

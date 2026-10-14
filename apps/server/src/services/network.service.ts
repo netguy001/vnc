@@ -306,7 +306,8 @@ grep nameserver /etc/resolv.conf 2>/dev/null || echo ""
     const cleanHost = host.trim().replace(/[^a-zA-Z0-9.-]/g, '');
     if (!cleanHost) throw new Error('Invalid host target');
 
-    const cmd = `ping -c ${count} -W 2 ${cleanHost} 2>&1`;
+    const pings = Number.isInteger(Number(count)) ? Math.min(Math.max(Number(count), 1), 10) : 3;
+    const cmd = `ping -c ${pings} -W 2 ${cleanHost} 2>&1`;
     try {
       const output = await sshService.executeCommand(creds, cmd, 8000);
       const lossMatch = output.match(/(\d+)%\s+packet loss/i);
@@ -375,7 +376,7 @@ grep nameserver /etc/resolv.conf 2>/dev/null || echo ""
    */
   async probePort(creds: InternalServerCredentials, host: string, port: number): Promise<PortProbeResult> {
     const cleanHost = host.trim().replace(/[^a-zA-Z0-9.-]/g, '');
-    if (!cleanHost || port <= 0 || port > 65535) throw new Error('Invalid host or port');
+    if (!cleanHost || !Number.isInteger(port) || port <= 0 || port > 65535) throw new Error('Invalid host or port');
 
     // Use python or bash tcp pseudo-device to probe port
     const cmd = `python3 -c "import socket; s = socket.socket(); s.settimeout(3); s.connect(('${cleanHost}', ${port})); s.close(); print('OPEN')" 2>/dev/null || (nc -z -w 3 ${cleanHost} ${port} 2>/dev/null && echo 'OPEN') || echo 'CLOSED'`;

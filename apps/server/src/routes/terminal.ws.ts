@@ -1,6 +1,6 @@
 import { WebSocket } from 'ws';
 import { FastifyInstance, FastifyRequest } from 'fastify';
-import { authService } from '../services/auth.service.js';
+import { authenticateWebSocket } from '../services/security-guard.js';
 import { serverService } from '../services/server.service.js';
 import { sshService } from '../services/ssh.service.js';
 import { auditService } from '../services/audit.service.js';
@@ -9,28 +9,17 @@ export function registerTerminalWebSocket(fastify: FastifyInstance): void {
   fastify.get(
     '/api/servers/:id/terminal',
     { websocket: true },
-    async (connection: any, req: FastifyRequest<{ Params: { id: string }; Querystring: { token?: string; cols?: string; rows?: string } }>) => {
+    async (connection: any, req: FastifyRequest<{ Params: { id: string }; Querystring: { cols?: string; rows?: string } }>) => {
       const socket: WebSocket = connection.socket || connection;
       const { id } = req.params;
 
-      // 1. Authenticate user from cookie or query param
-      let token = (req.cookies as any)?.token || (req.query as any)?.token;
-      if (!token && req.raw.url) {
-        try {
-          const parsedUrl = new URL(req.raw.url, 'http://localhost');
-          token = parsedUrl.searchParams.get('token');
-        } catch {}
-      }
-      if (!token) {
-        socket.close(4001, 'Unauthorized: missing token');
+      // 1. Authenticate via session cookie + Origin check (no tokens in the URL)
+      const authResult = authenticateWebSocket(req, 'operator');
+      if (!('user' in authResult)) {
+        socket.close(authResult.code, authResult.reason);
         return;
       }
-
-      const user = authService.verifyToken(token);
-      if (!user) {
-        socket.close(4001, 'Unauthorized: invalid token');
-        return;
-      }
+      const user = authResult.user;
 
       // 2. Fetch server and credentials
       const creds = serverService.getDecryptedCredentials(id);

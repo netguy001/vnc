@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Network,
   Activity,
@@ -16,6 +16,8 @@ import {
   Share2,
 } from 'lucide-react';
 import { api } from '../../api/client';
+import { useLiveData } from '../../context/LiveContext';
+import { LiveBadge } from '../common/LiveBadge';
 import {
   ServerNetworkOverview,
   PingResult,
@@ -29,6 +31,11 @@ interface NetworkMonitorProps {
   serverName: string;
 }
 
+function formatRate(bytesPerSec: number | undefined): string {
+  if (bytesPerSec === undefined) return '…';
+  return `${formatBytes(Math.max(0, Math.round(bytesPerSec)))}/s`;
+}
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -38,10 +45,33 @@ function formatBytes(bytes: number): string {
 }
 
 export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, serverName }) => {
+  // Live throughput: bytes/sec per interface from the delta between consecutive pushed samples.
+  const prevSample = useRef<Map<string, { rx: number; tx: number; t: number }>>(new Map());
+  const [rates, setRates] = useState<Record<string, { rx: number; tx: number }>>({});
+
   const [data, setData] = useState<ServerNetworkOverview | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(false);
+  const { updatedAt } = useLiveData<ServerNetworkOverview>('network', serverId, (net) => {
+    if (!net.isAvailable) {
+      setData(net);
+      return;
+    }
+    const now = Date.now();
+    const next: Record<string, { rx: number; tx: number }> = {};
+    for (const i of net.interfaces) {
+      const prev = prevSample.current.get(i.name);
+      if (prev && now > prev.t) {
+        const dt = (now - prev.t) / 1000;
+        next[i.name] = { rx: Math.max(0, (i.rxBytes - prev.rx) / dt), tx: Math.max(0, (i.txBytes - prev.tx) / dt) };
+      }
+      prevSample.current.set(i.name, { rx: i.rxBytes, tx: i.txBytes, t: now });
+    }
+    setRates((r) => ({ ...r, ...next }));
+    setData(net);
+    setError(null);
+    setIsLoading(false);
+  });
   const [error, setError] = useState<string | null>(null);
   const [activeSubTab, setActiveSubTab] = useState<'interfaces' | 'sockets' | 'routing' | 'diagnostics'>('interfaces');
 
@@ -91,14 +121,6 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
   useEffect(() => {
     fetchNetwork();
   }, [fetchNetwork]);
-
-  useEffect(() => {
-    if (!autoRefresh) return;
-    const interval = setInterval(() => {
-      fetchNetwork(false);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [autoRefresh, fetchNetwork]);
 
   // Diagnostics handlers
   const handleRunPing = async () => {
@@ -198,11 +220,14 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
   // Aggregate stats
   const totalRxBytes = (data?.interfaces || []).reduce((sum, iface) => sum + iface.rxBytes, 0);
   const totalTxBytes = (data?.interfaces || []).reduce((sum, iface) => sum + iface.txBytes, 0);
+  const rateValues = Object.values(rates);
+  const totalRxRate = rateValues.length ? rateValues.reduce((a, r) => a + r.rx, 0) : undefined;
+  const totalTxRate = rateValues.length ? rateValues.reduce((a, r) => a + r.tx, 0) : undefined;
   const totalRxPackets = (data?.interfaces || []).reduce((sum, iface) => sum + iface.rxPackets, 0);
   const totalTxPackets = (data?.interfaces || []).reduce((sum, iface) => sum + iface.txPackets, 0);
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0f1d] border border-slate-800 rounded-lg overflow-hidden shadow-2xl p-4 space-y-4 overflow-y-auto">
+    <div className="flex flex-col h-full bg-panel-inset border border-border rounded-lg overflow-hidden shadow-2xl p-4 space-y-4 overflow-y-auto">
       {/* Toast Notification */}
       {actionNotification && (
         <div
@@ -222,7 +247,7 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
           </div>
           <button
             onClick={() => setActionNotification(null)}
-            className="text-slate-400 hover:text-slate-200 text-sm ml-4 font-bold"
+            className="text-content-muted hover:text-content-secondary text-sm ml-4 font-bold"
           >
             ×
           </button>
@@ -230,19 +255,19 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
       )}
 
       {/* Header Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800 text-xs text-slate-300 flex-shrink-0">
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-border text-xs text-content-secondary flex-shrink-0">
         <div className="flex items-center gap-2.5">
           <div className="p-2 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sky-400">
             <Network className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-slate-100 text-sm">Network Traffic &amp; Interface Monitor</span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-400">
+              <span className="font-semibold text-content-primary text-sm">Network Traffic &amp; Interface Monitor</span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-panel-alt text-content-muted">
                 {serverName}
               </span>
             </div>
-            <div className="flex items-center gap-2 text-slate-500 font-mono text-[11px] mt-0.5">
+            <div className="flex items-center gap-2 text-content-muted font-mono text-[11px] mt-0.5">
               <span>Primary Gateway: {data?.routing.defaultGateway || 'Detecting...'}</span>
               {data?.timestamp && (
                 <>
@@ -255,20 +280,12 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
         </div>
 
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 cursor-pointer text-slate-400 hover:text-slate-200 text-xs">
-            <input
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={(e) => setAutoRefresh(e.target.checked)}
-              className="rounded bg-slate-900 border-slate-700 text-sky-500 focus:ring-0 w-3.5 h-3.5"
-            />
-            <span>Auto-refresh (5s)</span>
-          </label>
+          <LiveBadge updatedAt={updatedAt} />
 
           <button
             onClick={() => fetchNetwork(true)}
             disabled={isRefreshing}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded border border-slate-700 font-medium transition disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-panel-alt hover:bg-border text-content-primary rounded border border-border font-medium transition disabled:opacity-50"
             title="Refresh Network Telemetry"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-sky-400' : ''}`} />
@@ -280,18 +297,19 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
       {/* Primary KPI Overview Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 flex-shrink-0">
         {/* Total Inbound RX */}
-        <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-lg flex items-center justify-between">
+        <div className="p-3 bg-panel/60 border border-border rounded-lg flex items-center justify-between">
           <div>
-            <div className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
+            <div className="text-[11px] font-medium text-content-muted flex items-center gap-1">
               <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-400" />
               <span>Total Received (RX)</span>
             </div>
             <div className="text-lg font-bold font-mono text-emerald-400 mt-1">
               {data ? formatBytes(totalRxBytes) : '---'}
             </div>
-            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+            <div className="text-[10px] text-content-muted font-mono mt-0.5">
               {data ? `${totalRxPackets.toLocaleString()} pkts` : '0 pkts'}
             </div>
+            <div className="text-[11px] text-emerald-400 font-mono mt-0.5">↓ {formatRate(totalRxRate)}</div>
           </div>
           <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
             <ArrowDownLeft className="w-5 h-5" />
@@ -299,18 +317,19 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
         </div>
 
         {/* Total Outbound TX */}
-        <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-lg flex items-center justify-between">
+        <div className="p-3 bg-panel/60 border border-border rounded-lg flex items-center justify-between">
           <div>
-            <div className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
+            <div className="text-[11px] font-medium text-content-muted flex items-center gap-1">
               <ArrowUpRight className="w-3.5 h-3.5 text-sky-400" />
               <span>Total Transmitted (TX)</span>
             </div>
             <div className="text-lg font-bold font-mono text-sky-400 mt-1">
               {data ? formatBytes(totalTxBytes) : '---'}
             </div>
-            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+            <div className="text-[10px] text-content-muted font-mono mt-0.5">
               {data ? `${totalTxPackets.toLocaleString()} pkts` : '0 pkts'}
             </div>
+            <div className="text-[11px] text-sky-400 font-mono mt-0.5">↑ {formatRate(totalTxRate)}</div>
           </div>
           <div className="p-2.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400">
             <ArrowUpRight className="w-5 h-5" />
@@ -318,16 +337,16 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
         </div>
 
         {/* Active Sockets */}
-        <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-lg flex items-center justify-between">
+        <div className="p-3 bg-panel/60 border border-border rounded-lg flex items-center justify-between">
           <div>
-            <div className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
+            <div className="text-[11px] font-medium text-content-muted flex items-center gap-1">
               <Activity className="w-3.5 h-3.5 text-indigo-400" />
               <span>Active Sockets</span>
             </div>
-            <div className="text-lg font-bold font-mono text-slate-100 mt-1">
+            <div className="text-lg font-bold font-mono text-content-primary mt-1">
               {data ? data.connectionStats.total : '---'}
             </div>
-            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+            <div className="text-[10px] text-content-muted font-mono mt-0.5">
               {data
                 ? `${data.connectionStats.established} Established • ${data.connectionStats.listen} Listen`
                 : '0 Established'}
@@ -339,16 +358,16 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
         </div>
 
         {/* Gateway & DNS */}
-        <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-lg flex items-center justify-between">
+        <div className="p-3 bg-panel/60 border border-border rounded-lg flex items-center justify-between">
           <div>
-            <div className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
+            <div className="text-[11px] font-medium text-content-muted flex items-center gap-1">
               <Globe className="w-3.5 h-3.5 text-amber-400" />
               <span>Default Gateway</span>
             </div>
-            <div className="text-sm font-bold font-mono text-slate-100 mt-1 truncate max-w-[140px]" title={data?.routing.defaultGateway || 'None'}>
+            <div className="text-sm font-bold font-mono text-content-primary mt-1 truncate max-w-[140px]" title={data?.routing.defaultGateway || 'None'}>
               {data?.routing.defaultGateway || 'None'}
             </div>
-            <div className="text-[10px] text-slate-500 font-mono mt-0.5 truncate max-w-[140px]">
+            <div className="text-[10px] text-content-muted font-mono mt-0.5 truncate max-w-[140px]">
               DNS: {data?.routing.dnsServers.slice(0, 2).join(', ') || 'N/A'}
             </div>
           </div>
@@ -359,13 +378,13 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
       </div>
 
       {/* Sub Navigation Bar */}
-      <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-lg border border-slate-800 flex-shrink-0">
+      <div className="flex items-center gap-1 bg-panel-alt/80 p-1 rounded-lg border border-border flex-shrink-0">
         <button
           onClick={() => setActiveSubTab('interfaces')}
           className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition ${
             activeSubTab === 'interfaces'
               ? 'bg-sky-600 text-white shadow'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              : 'text-content-muted hover:text-content-secondary hover:bg-border/60'
           }`}
         >
           <Network className="w-3.5 h-3.5" />
@@ -377,7 +396,7 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
           className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition ${
             activeSubTab === 'sockets'
               ? 'bg-sky-600 text-white shadow'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              : 'text-content-muted hover:text-content-secondary hover:bg-border/60'
           }`}
         >
           <Radio className="w-3.5 h-3.5" />
@@ -389,7 +408,7 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
           className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition ${
             activeSubTab === 'routing'
               ? 'bg-sky-600 text-white shadow'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              : 'text-content-muted hover:text-content-secondary hover:bg-border/60'
           }`}
         >
           <Share2 className="w-3.5 h-3.5" />
@@ -401,7 +420,7 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
           className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition ${
             activeSubTab === 'diagnostics'
               ? 'bg-sky-600 text-white shadow'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              : 'text-content-muted hover:text-content-secondary hover:bg-border/60'
           }`}
         >
           <Zap className="w-3.5 h-3.5" />
@@ -411,7 +430,7 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
 
       {/* Main Content Area */}
       {isLoading && !data ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-slate-500 py-16">
+        <div className="flex-1 flex flex-col items-center justify-center text-content-muted py-16">
           <Loader2 className="w-8 h-8 animate-spin text-sky-400 mb-3" />
           <span className="text-xs">Querying Linux network interfaces and socket telemetry...</span>
         </div>
@@ -436,24 +455,24 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
                 {(data?.interfaces || []).map((iface) => (
                   <div
                     key={iface.name}
-                    className="p-4 bg-slate-900/80 border border-slate-800 hover:border-slate-700 rounded-lg flex flex-col justify-between space-y-3 transition shadow-lg"
+                    className="p-4 bg-panel/80 border border-border hover:border-border-strong rounded-lg flex flex-col justify-between space-y-3 transition shadow-lg"
                   >
                     <div>
                       {/* Interface Header */}
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-sm text-slate-100">{iface.name}</span>
+                          <span className="font-mono font-bold text-sm text-content-primary">{iface.name}</span>
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono border ${
                               iface.status.toUpperCase() === 'UP'
                                 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                                : 'bg-slate-800 text-slate-400 border-slate-700'
+                                : 'bg-panel-alt text-content-muted border-border'
                             }`}
                           >
                             {iface.status.toUpperCase()}
                           </span>
                         </div>
-                        <span className="text-[11px] text-slate-400 font-mono">
+                        <span className="text-[11px] text-content-muted font-mono">
                           MTU {iface.mtu || 1500}
                         </span>
                       </div>
@@ -461,39 +480,40 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
                       {/* IP Addresses */}
                       <div className="mt-3 space-y-1">
                         <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-500">IPv4:</span>
-                          <span className="font-mono text-slate-200">
-                            {iface.ipAddress || <span className="text-slate-600">None</span>}
+                          <span className="text-content-muted">IPv4:</span>
+                          <span className="font-mono text-content-primary">
+                            {iface.ipAddress || <span className="text-content-muted">None</span>}
                           </span>
                         </div>
                         {iface.ip6Address && (
                           <div className="flex items-center justify-between text-xs">
-                            <span className="text-slate-500">IPv6:</span>
-                            <span className="font-mono text-slate-400 text-[11px] truncate max-w-[200px]" title={iface.ip6Address}>
+                            <span className="text-content-muted">IPv6:</span>
+                            <span className="font-mono text-content-muted text-[11px] truncate max-w-[200px]" title={iface.ip6Address}>
                               {iface.ip6Address}
                             </span>
                           </div>
                         )}
                         {iface.macAddress && (
                           <div className="flex items-center justify-between text-xs">
-                            <span className="text-slate-500">MAC:</span>
-                            <span className="font-mono text-slate-400 text-[11px]">{iface.macAddress}</span>
+                            <span className="text-content-muted">MAC:</span>
+                            <span className="font-mono text-content-muted text-[11px]">{iface.macAddress}</span>
                           </div>
                         )}
                       </div>
                     </div>
 
                     {/* RX / TX Throughput Grid */}
-                    <div className="pt-3 border-t border-slate-800/80 grid grid-cols-2 gap-2 text-xs">
-                      <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
+                    <div className="pt-3 border-t border-border/80 grid grid-cols-2 gap-2 text-xs">
+                      <div className="p-2 rounded bg-panel-inset/60 border border-border/60">
                         <div className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
                           <ArrowDownLeft className="w-3 h-3" />
                           <span>RX Received</span>
                         </div>
-                        <div className="text-sm font-bold font-mono text-slate-100 mt-1">
+                        <div className="text-sm font-bold font-mono text-content-primary mt-1">
                           {iface.rxFormatted}
                         </div>
-                        <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                        <div className="text-[11px] text-emerald-400 font-mono">↓ {formatRate(rates[iface.name]?.rx)}</div>
+                        <div className="text-[10px] text-content-muted font-mono mt-0.5">
                           {iface.rxPackets.toLocaleString()} pkts
                         </div>
                         {(iface.rxErrors > 0 || iface.rxDropped > 0) && (
@@ -504,15 +524,16 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
                         )}
                       </div>
 
-                      <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
+                      <div className="p-2 rounded bg-panel-inset/60 border border-border/60">
                         <div className="flex items-center gap-1 text-[11px] text-sky-400 font-medium">
                           <ArrowUpRight className="w-3 h-3" />
                           <span>TX Transmitted</span>
                         </div>
-                        <div className="text-sm font-bold font-mono text-slate-100 mt-1">
+                        <div className="text-sm font-bold font-mono text-content-primary mt-1">
                           {iface.txFormatted}
                         </div>
-                        <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                        <div className="text-[11px] text-sky-400 font-mono">↑ {formatRate(rates[iface.name]?.tx)}</div>
+                        <div className="text-[10px] text-content-muted font-mono mt-0.5">
                           {iface.txPackets.toLocaleString()} pkts
                         </div>
                         {(iface.txErrors > 0 || iface.txDropped > 0) && (
@@ -538,8 +559,8 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
                   onClick={() => setSocketStateFilter('ALL')}
                   className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition ${
                     socketStateFilter === 'ALL'
-                      ? 'bg-slate-100 text-slate-900 shadow'
-                      : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                      ? 'bg-content-primary text-panel shadow'
+                      : 'bg-panel-alt text-content-muted hover:text-content-secondary'
                   }`}
                 >
                   ALL ({data?.connectionStats.total || 0})
@@ -593,13 +614,13 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
 
                 {/* Filter Search Input */}
                 <div className="relative min-w-[220px]">
-                  <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <Search className="w-3.5 h-3.5 text-content-muted absolute left-2.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={socketSearch}
                     onChange={(e) => setSocketSearch(e.target.value)}
                     placeholder="Search IP, port, or process..."
-                    className="w-full pl-8 pr-3 py-1 bg-slate-900/90 border border-slate-700 rounded text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 font-mono"
+                    className="w-full pl-8 pr-3 py-1 bg-panel/90 border border-border-strong rounded text-xs text-content-secondary placeholder-content-muted focus:outline-none focus:border-sky-500 font-mono"
                   />
                 </div>
               </div>
@@ -607,31 +628,31 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
               {/* Layout: Top Remote IPs + Sockets Table */}
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
                 {/* Top Remote IPs */}
-                <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-lg flex flex-col space-y-3">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-xs">
-                    <span className="font-semibold text-slate-200 flex items-center gap-1.5">
+                <div className="p-3 bg-panel/60 border border-border rounded-lg flex flex-col space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-border text-xs">
+                    <span className="font-semibold text-content-secondary flex items-center gap-1.5">
                       <Globe className="w-3.5 h-3.5 text-sky-400" />
                       <span>Top Remote Peers</span>
                     </span>
-                    <span className="text-[10px] text-slate-500 font-mono">
+                    <span className="text-[10px] text-content-muted font-mono">
                       {data?.connectionStats.topRemoteIps.length || 0} IPs
                     </span>
                   </div>
 
                   <div className="space-y-2 overflow-y-auto max-h-[420px] pr-1">
                     {(data?.connectionStats.topRemoteIps || []).length === 0 ? (
-                      <div className="text-center py-6 text-slate-500 text-xs">
+                      <div className="text-center py-6 text-content-muted text-xs">
                         No active remote peers
                       </div>
                     ) : (
                       (data?.connectionStats.topRemoteIps || []).map((peer: { ip: string; count: number }, idx: number) => (
                         <div
                           key={peer.ip}
-                          className="p-2 rounded bg-slate-950/70 border border-slate-800 text-xs flex items-center justify-between"
+                          className="p-2 rounded bg-panel-inset/70 border border-border text-xs flex items-center justify-between"
                         >
                           <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-mono text-slate-500 w-4">#{idx + 1}</span>
-                            <span className="font-mono text-slate-200">{peer.ip}</span>
+                            <span className="text-[10px] font-mono text-content-muted w-4">#{idx + 1}</span>
+                            <span className="font-mono text-content-secondary">{peer.ip}</span>
                           </div>
                           <span className="px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 font-mono text-[11px] font-bold">
                             {peer.count} conn
@@ -643,10 +664,10 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
                 </div>
 
                 {/* Sockets Table */}
-                <div className="lg:col-span-3 bg-slate-900/60 border border-slate-800 rounded-lg overflow-hidden flex flex-col">
+                <div className="lg:col-span-3 bg-panel/60 border border-border rounded-lg overflow-hidden flex flex-col">
                   <div className="overflow-x-auto overflow-y-auto max-h-[480px]">
                     <table className="w-full text-left text-xs border-collapse font-mono">
-                      <thead className="bg-slate-950/80 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800 sticky top-0 z-10">
+                      <thead className="bg-panel-inset/80 text-content-muted uppercase text-[10px] tracking-wider border-b border-border sticky top-0 z-10">
                         <tr>
                           <th className="py-2.5 px-3">Proto</th>
                           <th className="py-2.5 px-3">State</th>
@@ -655,35 +676,35 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
                           <th className="py-2.5 px-3">Process</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                      <tbody className="divide-y divide-border/60 text-content-secondary">
                         {filteredConnections.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="py-8 text-center text-slate-500">
+                            <td colSpan={5} className="py-8 text-center text-content-muted">
                               No connections found matching filters.
                             </td>
                           </tr>
                         ) : (
                           filteredConnections.map((conn: SocketConnection, idx: number) => (
-                            <tr key={`${conn.localAddress}-${conn.remoteAddress}-${idx}`} className="hover:bg-slate-800/40 transition">
-                              <td className="py-2 px-3 text-slate-400 uppercase text-[11px]">
+                            <tr key={`${conn.localAddress}-${conn.remoteAddress}-${idx}`} className="hover:bg-panel-alt/40 transition">
+                              <td className="py-2 px-3 text-content-muted uppercase text-[11px]">
                                 {conn.protocol}
                               </td>
                               <td className="py-2 px-3">
                                 <span
                                   className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                                    stateColors[conn.state] || 'bg-slate-800 text-slate-400 border-slate-700'
+                                    stateColors[conn.state] || 'bg-panel-alt text-content-muted border-border'
                                   }`}
                                 >
                                   {conn.state}
                                 </span>
                               </td>
-                              <td className="py-2 px-3 text-slate-200">
+                              <td className="py-2 px-3 text-content-secondary">
                                 {conn.localAddress}:{conn.localPort}
                               </td>
-                              <td className="py-2 px-3 text-slate-400">
+                              <td className="py-2 px-3 text-content-muted">
                                 {conn.remoteAddress}:{conn.remotePort}
                               </td>
-                              <td className="py-2 px-3 text-slate-500 text-[11px] truncate max-w-[150px]" title={conn.process || ''}>
+                              <td className="py-2 px-3 text-content-muted text-[11px] truncate max-w-[150px]" title={conn.process || ''}>
                                 {conn.process || '---'}
                               </td>
                             </tr>
@@ -702,27 +723,27 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Default Route Card */}
-                <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-lg space-y-2">
-                  <div className="flex items-center gap-2 text-slate-400 text-xs font-semibold">
+                <div className="p-4 bg-panel/80 border border-border rounded-lg space-y-2">
+                  <div className="flex items-center gap-2 text-content-muted text-xs font-semibold">
                     <Globe className="w-4 h-4 text-emerald-400" />
                     <span>Default Gateway Route</span>
                   </div>
-                  <div className="text-xl font-mono font-bold text-slate-100">
+                  <div className="text-xl font-mono font-bold text-content-primary">
                     {data?.routing.defaultGateway || 'None'}
                   </div>
-                  <div className="text-xs text-slate-400 font-mono">
+                  <div className="text-xs text-content-muted font-mono">
                     Interface: <span className="text-sky-400">{data?.routing.defaultInterface || 'N/A'}</span>
                   </div>
                 </div>
 
                 {/* Configured DNS Resolvers */}
-                <div className="md:col-span-2 p-4 bg-slate-900/80 border border-slate-800 rounded-lg space-y-2">
-                  <div className="flex items-center justify-between text-slate-400 text-xs font-semibold">
+                <div className="md:col-span-2 p-4 bg-panel/80 border border-border rounded-lg space-y-2">
+                  <div className="flex items-center justify-between text-content-muted text-xs font-semibold">
                     <div className="flex items-center gap-2">
                       <Radio className="w-4 h-4 text-sky-400" />
                       <span>DNS Nameservers (/etc/resolv.conf)</span>
                     </div>
-                    <span className="text-[10px] text-slate-500 font-mono">
+                    <span className="text-[10px] text-content-muted font-mono">
                       {data?.routing.dnsServers.length || 0} nameservers
                     </span>
                   </div>
@@ -731,7 +752,7 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
                     {(data?.routing.dnsServers || []).map((ns: string) => (
                       <div
                         key={ns}
-                        className="flex items-center gap-2 px-3 py-1.5 rounded bg-slate-950/80 border border-slate-800 text-xs font-mono text-slate-200"
+                        className="flex items-center gap-2 px-3 py-1.5 rounded bg-panel-inset/80 border border-border text-xs font-mono text-content-primary"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                         <span>{ns}</span>
@@ -742,27 +763,27 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
               </div>
 
               {/* Kernel IP Routing Table */}
-              <div className="bg-slate-900/80 border border-slate-800 rounded-lg overflow-hidden">
-                <div className="p-3 border-b border-slate-800 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-200 flex items-center gap-2">
+              <div className="bg-panel/80 border border-border rounded-lg overflow-hidden">
+                <div className="p-3 border-b border-border flex items-center justify-between">
+                  <span className="text-xs font-semibold text-content-secondary flex items-center gap-2">
                     <Share2 className="w-4 h-4 text-indigo-400" />
                     <span>Kernel IP Routes (ip route)</span>
                   </span>
-                  <span className="text-[10px] text-slate-500 font-mono">
+                  <span className="text-[10px] text-content-muted font-mono">
                     {data?.routing.routes.length || 0} routes active
                   </span>
                 </div>
 
                 <div className="p-3 space-y-1 overflow-x-auto">
                   {(data?.routing.routes || []).length === 0 ? (
-                    <div className="text-slate-500 text-xs py-4 text-center">No active routes found.</div>
+                    <div className="text-content-muted text-xs py-4 text-center">No active routes found.</div>
                   ) : (
                     (data?.routing.routes || []).map((routeStr: string, idx: number) => (
                       <div
                         key={idx}
-                        className="p-2 bg-slate-950/70 border border-slate-800/80 rounded font-mono text-xs text-slate-200 hover:bg-slate-900 transition flex items-center gap-2"
+                        className="p-2 bg-panel-inset/70 border border-border/80 rounded font-mono text-xs text-content-primary hover:bg-panel transition flex items-center gap-2"
                       >
-                        <span className="text-slate-500 text-[10px] w-6">#{idx + 1}</span>
+                        <span className="text-content-muted text-[10px] w-6">#{idx + 1}</span>
                         <span>{routeStr}</span>
                       </div>
                     ))
@@ -776,21 +797,21 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
           {activeSubTab === 'diagnostics' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Tool 1: Ping Latency Test */}
-              <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-lg flex flex-col space-y-3">
-                <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
+              <div className="p-4 bg-panel/80 border border-border rounded-lg flex flex-col space-y-3">
+                <div className="flex items-center gap-2 pb-2 border-b border-border">
                   <Activity className="w-4 h-4 text-emerald-400" />
-                  <span className="text-xs font-semibold text-slate-100">ICMP Ping Latency Test</span>
+                  <span className="text-xs font-semibold text-content-primary">ICMP Ping Latency Test</span>
                 </div>
 
                 <div className="space-y-2">
                   <div>
-                    <label className="text-[11px] text-slate-400 mb-1 block">Target Host or IP</label>
+                    <label className="text-[11px] text-content-muted mb-1 block">Target Host or IP</label>
                     <input
                       type="text"
                       value={pingHost}
                       onChange={(e) => setPingHost(e.target.value)}
                       placeholder="e.g. 8.8.8.8 or google.com"
-                      className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs text-slate-200 font-mono focus:outline-none focus:border-sky-500"
+                      className="w-full px-3 py-1.5 bg-panel-inset border border-border-strong rounded text-xs text-content-secondary font-mono focus:outline-none focus:border-sky-500"
                     />
                   </div>
 
@@ -800,7 +821,7 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
                       <button
                         key={p}
                         onClick={() => setPingHost(p)}
-                        className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 transition"
+                        className="px-1.5 py-0.5 rounded bg-panel-alt hover:bg-border text-[10px] font-mono text-content-secondary transition"
                       >
                         {p}
                       </button>
@@ -808,11 +829,11 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
                   </div>
 
                   <div>
-                    <label className="text-[11px] text-slate-400 mb-1 block">Packets Count</label>
+                    <label className="text-[11px] text-content-muted mb-1 block">Packets Count</label>
                     <select
                       value={pingCount}
                       onChange={(e) => setPingCount(Number(e.target.value))}
-                      className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs text-slate-200 font-mono focus:outline-none focus:border-sky-500"
+                      className="w-full px-3 py-1.5 bg-panel-inset border border-border-strong rounded text-xs text-content-secondary font-mono focus:outline-none focus:border-sky-500"
                     >
                       <option value={2}>2 Packets (Fast)</option>
                       <option value={4}>4 Packets (Standard)</option>
@@ -832,14 +853,14 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
 
                 {/* Ping Results */}
                 {pingResult && (
-                  <div className="mt-3 p-3 rounded bg-slate-950 border border-slate-800 space-y-2 text-xs font-mono">
+                  <div className="mt-3 p-3 rounded bg-panel-inset border border-border space-y-2 text-xs font-mono">
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Target:</span>
-                      <span className="text-slate-200 font-bold">{pingResult.host}</span>
+                      <span className="text-content-muted">Target:</span>
+                      <span className="text-content-primary font-bold">{pingResult.host}</span>
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Packet Loss:</span>
+                      <span className="text-content-muted">Packet Loss:</span>
                       <span className={pingResult.lossPercent === 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
                         {pingResult.lossPercent}% ({pingResult.received}/{pingResult.transmitted})
                       </span>
@@ -847,22 +868,22 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
 
                     {pingResult.avgMs !== undefined && (
                       <div className="flex items-center justify-between">
-                        <span className="text-slate-400">Average RTT:</span>
+                        <span className="text-content-muted">Average RTT:</span>
                         <span className="text-sky-400 font-bold">{pingResult.avgMs} ms</span>
                       </div>
                     )}
 
                     {pingResult.minMs !== undefined && pingResult.maxMs !== undefined && (
-                      <div className="flex items-center justify-between text-[11px] text-slate-500">
+                      <div className="flex items-center justify-between text-[11px] text-content-muted">
                         <span>Min/Max RTT:</span>
                         <span>{pingResult.minMs}ms / {pingResult.maxMs}ms</span>
                       </div>
                     )}
 
                     {pingResult.rawOutput && (
-                      <details className="mt-2 text-[10px] text-slate-400 cursor-pointer">
-                        <summary className="hover:text-slate-300">View Raw Output</summary>
-                        <pre className="mt-1 p-2 bg-black/60 rounded text-slate-300 overflow-x-auto whitespace-pre-wrap">
+                      <details className="mt-2 text-[10px] text-content-muted cursor-pointer">
+                        <summary className="hover:text-content-secondary">View Raw Output</summary>
+                        <pre className="mt-1 p-2 bg-black/60 rounded text-content-secondary overflow-x-auto whitespace-pre-wrap">
                           {pingResult.rawOutput}
                         </pre>
                       </details>
@@ -872,21 +893,21 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
               </div>
 
               {/* Tool 2: DNS Query Resolver */}
-              <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-lg flex flex-col space-y-3">
-                <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
+              <div className="p-4 bg-panel/80 border border-border rounded-lg flex flex-col space-y-3">
+                <div className="flex items-center gap-2 pb-2 border-b border-border">
                   <Globe className="w-4 h-4 text-sky-400" />
-                  <span className="text-xs font-semibold text-slate-100">DNS Query Resolver</span>
+                  <span className="text-xs font-semibold text-content-primary">DNS Query Resolver</span>
                 </div>
 
                 <div className="space-y-2">
                   <div>
-                    <label className="text-[11px] text-slate-400 mb-1 block">Domain Name</label>
+                    <label className="text-[11px] text-content-muted mb-1 block">Domain Name</label>
                     <input
                       type="text"
                       value={dnsHost}
                       onChange={(e) => setDnsHost(e.target.value)}
                       placeholder="e.g. github.com or openai.com"
-                      className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs text-slate-200 font-mono focus:outline-none focus:border-sky-500"
+                      className="w-full px-3 py-1.5 bg-panel-inset border border-border-strong rounded text-xs text-content-secondary font-mono focus:outline-none focus:border-sky-500"
                     />
                   </div>
 
@@ -896,7 +917,7 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
                       <button
                         key={d}
                         onClick={() => setDnsHost(d)}
-                        className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 transition"
+                        className="px-1.5 py-0.5 rounded bg-panel-alt hover:bg-border text-[10px] font-mono text-content-secondary transition"
                       >
                         {d}
                       </button>
@@ -915,27 +936,27 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
 
                 {/* DNS Results */}
                 {dnsResult && (
-                  <div className="mt-3 p-3 rounded bg-slate-950 border border-slate-800 space-y-2 text-xs font-mono">
+                  <div className="mt-3 p-3 rounded bg-panel-inset border border-border space-y-2 text-xs font-mono">
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Domain:</span>
-                      <span className="text-slate-200 font-bold">{dnsResult.host}</span>
+                      <span className="text-content-muted">Domain:</span>
+                      <span className="text-content-primary font-bold">{dnsResult.host}</span>
                     </div>
 
                     {dnsResult.latencyMs !== undefined && (
                       <div className="flex items-center justify-between">
-                        <span className="text-slate-400">Response Time:</span>
+                        <span className="text-content-muted">Response Time:</span>
                         <span className="text-sky-400 font-bold">{dnsResult.latencyMs} ms</span>
                       </div>
                     )}
 
                     <div>
-                      <span className="text-slate-400 block mb-1">Resolved Addresses:</span>
+                      <span className="text-content-muted block mb-1">Resolved Addresses:</span>
                       {dnsResult.records.length === 0 ? (
                         <span className="text-rose-400">No records found</span>
                       ) : (
                         <div className="space-y-1">
                           {dnsResult.records.map((rec: string, idx: number) => (
-                            <div key={idx} className="px-2 py-1 bg-slate-900 rounded text-emerald-400 text-[11px] font-mono">
+                            <div key={idx} className="px-2 py-1 bg-panel rounded text-emerald-400 text-[11px] font-mono">
                               {rec}
                             </div>
                           ))}
@@ -944,9 +965,9 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
                     </div>
 
                     {dnsResult.rawOutput && (
-                      <details className="mt-2 text-[10px] text-slate-400 cursor-pointer">
-                        <summary className="hover:text-slate-300">View Raw Output</summary>
-                        <pre className="mt-1 p-2 bg-black/60 rounded text-slate-300 overflow-x-auto whitespace-pre-wrap">
+                      <details className="mt-2 text-[10px] text-content-muted cursor-pointer">
+                        <summary className="hover:text-content-secondary">View Raw Output</summary>
+                        <pre className="mt-1 p-2 bg-black/60 rounded text-content-secondary overflow-x-auto whitespace-pre-wrap">
                           {dnsResult.rawOutput}
                         </pre>
                       </details>
@@ -956,32 +977,32 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
               </div>
 
               {/* Tool 3: Outbound TCP Port Probe */}
-              <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-lg flex flex-col space-y-3">
-                <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
+              <div className="p-4 bg-panel/80 border border-border rounded-lg flex flex-col space-y-3">
+                <div className="flex items-center gap-2 pb-2 border-b border-border">
                   <Radio className="w-4 h-4 text-purple-400" />
-                  <span className="text-xs font-semibold text-slate-100">Outbound TCP Port Probe</span>
+                  <span className="text-xs font-semibold text-content-primary">Outbound TCP Port Probe</span>
                 </div>
 
                 <div className="space-y-2">
                   <div>
-                    <label className="text-[11px] text-slate-400 mb-1 block">Remote Host / IP</label>
+                    <label className="text-[11px] text-content-muted mb-1 block">Remote Host / IP</label>
                     <input
                       type="text"
                       value={probeHost}
                       onChange={(e) => setProbeHost(e.target.value)}
                       placeholder="e.g. 1.1.1.1 or example.com"
-                      className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs text-slate-200 font-mono focus:outline-none focus:border-sky-500"
+                      className="w-full px-3 py-1.5 bg-panel-inset border border-border-strong rounded text-xs text-content-secondary font-mono focus:outline-none focus:border-sky-500"
                     />
                   </div>
 
                   <div>
-                    <label className="text-[11px] text-slate-400 mb-1 block">Port Number</label>
+                    <label className="text-[11px] text-content-muted mb-1 block">Port Number</label>
                     <input
                       type="number"
                       value={probePort}
                       onChange={(e) => setProbePort(Number(e.target.value))}
                       placeholder="443"
-                      className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs text-slate-200 font-mono focus:outline-none focus:border-sky-500"
+                      className="w-full px-3 py-1.5 bg-panel-inset border border-border-strong rounded text-xs text-content-secondary font-mono focus:outline-none focus:border-sky-500"
                     />
                   </div>
 
@@ -997,7 +1018,7 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
                       <button
                         key={p.port}
                         onClick={() => setProbePort(p.port)}
-                        className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 transition"
+                        className="px-1.5 py-0.5 rounded bg-panel-alt hover:bg-border text-[10px] font-mono text-content-secondary transition"
                       >
                         {p.label}
                       </button>
@@ -1016,16 +1037,16 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
 
                 {/* Port Probe Results */}
                 {probeResult && (
-                  <div className="mt-3 p-3 rounded bg-slate-950 border border-slate-800 space-y-2 text-xs font-mono">
+                  <div className="mt-3 p-3 rounded bg-panel-inset border border-border space-y-2 text-xs font-mono">
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Endpoint:</span>
-                      <span className="text-slate-200 font-bold">
+                      <span className="text-content-muted">Endpoint:</span>
+                      <span className="text-content-primary font-bold">
                         {probeResult.host}:{probeResult.port}
                       </span>
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Status:</span>
+                      <span className="text-content-muted">Status:</span>
                       <span
                         className={`px-2 py-0.5 rounded font-bold border ${
                           probeResult.isOpen
@@ -1039,12 +1060,12 @@ export const NetworkMonitor: React.FC<NetworkMonitorProps> = ({ serverId, server
 
                     {probeResult.latencyMs !== undefined && (
                       <div className="flex items-center justify-between">
-                        <span className="text-slate-400">Latency:</span>
+                        <span className="text-content-muted">Latency:</span>
                         <span className="text-purple-400 font-bold">{probeResult.latencyMs} ms</span>
                       </div>
                     )}
 
-                    <div className="text-[11px] text-slate-400 pt-1 border-t border-slate-800">
+                    <div className="text-[11px] text-content-muted pt-1 border-t border-border">
                       {probeResult.message}
                     </div>
                   </div>

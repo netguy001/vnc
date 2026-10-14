@@ -5,6 +5,7 @@ import { createServer } from '../index.js';
 import { SQLiteDatabaseClient, setDatabase } from '../db/client.js';
 import { MockVncServer } from '../mock/mock-vnc.js';
 import { MockSshServer } from '../mock/mock-ssh.js';
+import { sshService } from '../services/ssh.service.js';
 
 describe('ServerConsole End-to-End Integration Pipeline', () => {
   let server: FastifyInstance;
@@ -33,6 +34,7 @@ describe('ServerConsole End-to-End Integration Pipeline', () => {
   });
 
   afterAll(async () => {
+    sshService.closeAll();
     await server.close();
     await mockVnc.stop();
     await mockSsh.stop();

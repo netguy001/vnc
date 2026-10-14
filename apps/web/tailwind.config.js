@@ -8,6 +8,22 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Semantic surface/text/border tokens — backed by CSS variables so both
+        // themes share one class vocabulary (bg-app, bg-panel, text-primary, etc).
+        // Defined in index.css under :root and [data-theme="light"].
+        app: 'rgb(var(--color-app) / <alpha-value>)',
+        panel: 'rgb(var(--color-panel) / <alpha-value>)',
+        'panel-alt': 'rgb(var(--color-panel-alt) / <alpha-value>)',
+        'panel-inset': 'rgb(var(--color-panel-inset) / <alpha-value>)',
+        border: {
+          DEFAULT: 'rgb(var(--color-border) / <alpha-value>)',
+          strong: 'rgb(var(--color-border-strong) / <alpha-value>)',
+        },
+        content: {
+          primary: 'rgb(var(--color-text-primary) / <alpha-value>)',
+          secondary: 'rgb(var(--color-text-secondary) / <alpha-value>)',
+          muted: 'rgb(var(--color-text-muted) / <alpha-value>)',
+        },
         background: '#090d16',
         surface: {
           50: '#1e293b',

@@ -1,11 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { api, PluginUiEntry } from './api/client';
+import { PluginPage } from './pages/PluginPage';
+import { PluginsManagerPage } from './pages/PluginsManagerPage';
 import { useAuth } from './context/AuthContext';
 import { LoginPage } from './pages/LoginPage';
 import { AppLayout } from './components/layout/AppLayout';
 import { DashboardPage } from './pages/DashboardPage';
 import { ServersPage } from './pages/ServersPage';
 import { ServerDetailPage } from './pages/ServerDetailPage';
+import { RunbooksPage } from './pages/RunbooksPage';
+import { AlertsPage } from './pages/AlertsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { Loader2 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -13,6 +19,29 @@ export const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [selectedServerId, setSelectedServerId] = useState<string | undefined>(undefined);
   const [serverActiveTab, setServerActiveTab] = useState<string>('console');
+
+  const [pluginUi, setPluginUi] = useState<PluginUiEntry[]>([]);
+  const refreshPluginUi = useCallback(async () => {
+    try {
+      setPluginUi((await api.getPluginUi()).plugins);
+    } catch {
+      setPluginUi([]);
+    }
+  }, []);
+  useEffect(() => {
+    if (user) void refreshPluginUi();
+  }, [user, refreshPluginUi]);
+
+  const renderPluginTab = () => {
+    const [, pluginId, pageId] = currentTab.split(':');
+    const entry = pluginUi.find((p) => p.pluginId === pluginId);
+    const page = entry?.pages.find((pg) => pg.id === pageId);
+    return entry && page ? (
+      <PluginPage pluginId={entry.pluginId} pluginName={entry.pluginName} page={page as any} />
+    ) : (
+      <div className="p-6 text-xs text-content-muted">This plugin page is no longer available.</div>
+    );
+  };
 
   if (isLoading) {
     return (
@@ -41,7 +70,9 @@ export const App: React.FC = () => {
       setCurrentTab={setCurrentTab}
       selectedServerId={selectedServerId}
       setSelectedServerId={setSelectedServerId}
+      pluginPages={pluginUi}
     >
+      <ErrorBoundary label={selectedServerId ? 'server view' : currentTab} key={`${selectedServerId ?? ''}:${currentTab}`}>
       {selectedServerId ? (
         <ServerDetailPage
           serverId={selectedServerId}
@@ -57,9 +88,14 @@ export const App: React.FC = () => {
           {currentTab === 'servers' && (
             <ServersPage onOpenServer={handleOpenServer} />
           )}
+          {currentTab === 'alerts' && <AlertsPage />}
+          {currentTab === 'runbooks' && <RunbooksPage />}
+          {currentTab === 'plugins' && <PluginsManagerPage onChanged={refreshPluginUi} />}
+          {currentTab.startsWith('plugin:') && renderPluginTab()}
           {currentTab === 'settings' && <SettingsPage />}
         </>
       )}
+      </ErrorBoundary>
     </AppLayout>
   );
 };

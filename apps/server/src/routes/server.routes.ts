@@ -6,6 +6,7 @@ import { monitorService } from '../services/monitor.service.js';
 import { dockerService } from '../services/docker.service.js';
 import { auditService } from '../services/audit.service.js';
 import { securityService } from '../services/security.service.js';
+import { metricsStore } from '../services/metrics-store.service.js';
 import { networkService } from '../services/network.service.js';
 import { ServerCreateSchema, ServerUpdateSchema, AddFirewallRuleInput } from '@server-console/shared';
 
@@ -110,7 +111,29 @@ export function registerServerRoutes(fastify: FastifyInstance): void {
       });
     }
 
+    if (deleted) sshService.evictServer(id);
     return reply.send({ success: deleted });
+  });
+
+  // SSH host key pinning (trust-on-first-use)
+  fastify.get('/api/servers/:id/host-key', async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    return reply.send({ hostKey: sshService.getHostKey(req.params.id) });
+  });
+
+  fastify.post('/api/servers/:id/host-key/reset', async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    const server = serverService.getServerById(req.params.id);
+    if (!server) return reply.status(404).send({ error: 'Server not found' });
+    sshService.resetHostKey(req.params.id);
+    auditService.log({
+      userId: req.user?.userId,
+      username: req.user?.username,
+      action: 'HOST_KEY_RESET',
+      serverId: server.id,
+      serverName: server.name,
+      details: 'Trusted SSH host key cleared; the next connection will pin the key it presents',
+      ipAddress: req.ip,
+    });
+    return reply.send({ success: true });
   });
 
   // Get decrypted VNC credentials for authorized session
@@ -168,14 +191,22 @@ export function registerServerRoutes(fastify: FastifyInstance): void {
   });
 
   // Server Monitoring metrics
-  fastify.get('/api/servers/:id/monitor', async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+  fastify.get('/api/servers/:id/monitor', async (req: FastifyRequest<{ Params: { id: string }; Querystring: { fresh?: string } }>, reply: FastifyReply) => {
     const { id } = req.params;
     const creds = serverService.getDecryptedCredentials(id);
     if (!creds || !creds.server) {
       return reply.status(404).send({ error: 'Server not found' });
     }
 
+    // Dashboard views reuse the background collector's snapshot; detail views ask for ?fresh=1.
+    if (req.query.fresh !== '1') {
+      const cached = metricsStore.getCached(id);
+      if (cached) return reply.send({ metrics: cached });
+    }
+
+    const started = Date.now();
     const metrics = await monitorService.getMetrics(creds);
+    metricsStore.record(id, creds.server.name, creds.server.status, metrics, Date.now() - started);
     return reply.send({ metrics });
   });
 

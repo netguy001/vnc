@@ -11,15 +11,20 @@ import {
   Loader2,
   ExternalLink,
   ChevronLeft,
+  Cog,
+  ScrollText,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { ServerDTO } from '@server-console/shared';
 import { VncViewer } from '../components/vnc/VncViewer';
-import { SshTerminal } from '../components/terminal/SshTerminal';
+import { TerminalWorkspace } from '../components/terminal/TerminalWorkspace';
 import { SftpFileManager } from '../components/sftp/SftpFileManager';
 import { ServerMonitor } from '../components/monitor/ServerMonitor';
 import { DockerMonitor } from '../components/docker/DockerMonitor';
 import { SecurityDashboard } from '../components/security/SecurityDashboard';
+import { HostKeyBadge } from '../components/servers/HostKeyBadge';
+import { ServiceManager } from '../components/services/ServiceManager';
+import { LogExplorer } from '../components/logs/LogExplorer';
 import { NetworkMonitor } from '../components/network/NetworkMonitor';
 
 interface ServerDetailPageProps {
@@ -38,6 +43,15 @@ export const ServerDetailPage: React.FC<ServerDetailPageProps> = ({
   const [server, setServer] = useState<ServerDTO | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isTesting, setIsTesting] = useState(false);
+  const [terminalOpened, setTerminalOpened] = useState(activeTab === 'terminal');
+
+  // Open the terminal lazily (first visit) and keep it mounted afterwards; reset when switching servers.
+  useEffect(() => {
+    setTerminalOpened(activeTab === 'terminal');
+  }, [serverId]);
+  useEffect(() => {
+    if (activeTab === 'terminal') setTerminalOpened(true);
+  }, [activeTab]);
 
   const loadServer = async () => {
     setIsLoading(true);
@@ -72,7 +86,7 @@ export const ServerDetailPage: React.FC<ServerDetailPageProps> = ({
 
   if (isLoading && !server) {
     return (
-      <div className="flex-1 flex items-center justify-center text-slate-500 text-xs">
+      <div className="flex-1 flex items-center justify-center text-content-muted text-xs">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         <span>Loading server details...</span>
       </div>
@@ -81,7 +95,7 @@ export const ServerDetailPage: React.FC<ServerDetailPageProps> = ({
 
   if (!server) {
     return (
-      <div className="p-8 text-center text-slate-400">
+      <div className="p-8 text-center text-content-muted">
         <p>Server not found or deleted.</p>
         <button onClick={onBack} className="mt-3 text-sky-400 hover:underline text-xs">
           Return to Dashboard
@@ -93,11 +107,11 @@ export const ServerDetailPage: React.FC<ServerDetailPageProps> = ({
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden space-y-2">
       {/* Server Header Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 bg-slate-900/80 rounded-lg border border-slate-800 text-xs flex-shrink-0">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 bg-panel/80 rounded-lg border border-border text-xs flex-shrink-0">
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-100 transition"
+            className="p-1 rounded bg-panel-alt hover:bg-border text-content-muted hover:text-content-primary transition"
             title="Back to servers"
           >
             <ChevronLeft className="w-4 h-4" />
@@ -105,16 +119,16 @@ export const ServerDetailPage: React.FC<ServerDetailPageProps> = ({
 
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-slate-100 text-sm">{server.name}</span>
-              <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono text-[10px]">
+              <span className="font-bold text-content-primary text-sm">{server.name}</span>
+              <span className="px-1.5 py-0.5 rounded bg-panel-alt text-content-muted font-mono text-[10px]">
                 {server.serverGroup || 'Default'}
               </span>
             </div>
-            <div className="flex items-center gap-2 text-slate-400 font-mono text-[11px] mt-0.5">
+            <div className="flex items-center gap-2 text-content-muted font-mono text-[11px] mt-0.5">
               <span>{server.sshUsername}@{server.host}:{server.sshPort}</span>
               {server.vncEnabled && (
                 <>
-                  <span className="text-slate-600">•</span>
+                  <span className="text-content-muted">•</span>
                   <span className="text-emerald-400">VNC :{server.vncPort}</span>
                 </>
               )}
@@ -123,14 +137,14 @@ export const ServerDetailPage: React.FC<ServerDetailPageProps> = ({
         </div>
 
         {/* Workspace Navigation Tabs */}
-        <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-lg border border-slate-800">
+        <div className="flex flex-wrap items-center gap-1 bg-panel-alt/80 p-1 rounded-lg border border-border">
           {server.vncEnabled && (
             <button
               onClick={() => setActiveTab('console')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition ${
                 activeTab === 'console'
                   ? 'bg-sky-600 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  : 'text-content-muted hover:text-content-secondary hover:bg-border/60'
               }`}
             >
               <Monitor className="w-3.5 h-3.5" />
@@ -143,7 +157,7 @@ export const ServerDetailPage: React.FC<ServerDetailPageProps> = ({
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition ${
               activeTab === 'terminal'
                 ? 'bg-sky-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                : 'text-content-muted hover:text-content-secondary hover:bg-border/60'
             }`}
           >
             <Terminal className="w-3.5 h-3.5" />
@@ -155,7 +169,7 @@ export const ServerDetailPage: React.FC<ServerDetailPageProps> = ({
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition ${
               activeTab === 'files'
                 ? 'bg-sky-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                : 'text-content-muted hover:text-content-secondary hover:bg-border/60'
             }`}
           >
             <Folder className="w-3.5 h-3.5" />
@@ -167,7 +181,7 @@ export const ServerDetailPage: React.FC<ServerDetailPageProps> = ({
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition ${
               activeTab === 'monitor'
                 ? 'bg-sky-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                : 'text-content-muted hover:text-content-secondary hover:bg-border/60'
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
@@ -179,7 +193,7 @@ export const ServerDetailPage: React.FC<ServerDetailPageProps> = ({
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition ${
               activeTab === 'docker'
                 ? 'bg-sky-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                : 'text-content-muted hover:text-content-secondary hover:bg-border/60'
             }`}
           >
             <Box className="w-3.5 h-3.5" />
@@ -191,7 +205,7 @@ export const ServerDetailPage: React.FC<ServerDetailPageProps> = ({
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition ${
               activeTab === 'security'
                 ? 'bg-sky-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                : 'text-content-muted hover:text-content-secondary hover:bg-border/60'
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5" />
@@ -203,19 +217,45 @@ export const ServerDetailPage: React.FC<ServerDetailPageProps> = ({
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition ${
               activeTab === 'network'
                 ? 'bg-sky-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                : 'text-content-muted hover:text-content-secondary hover:bg-border/60'
             }`}
           >
             <Network className="w-3.5 h-3.5" />
             <span>Network</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab('services')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition ${
+              activeTab === 'services'
+                ? 'bg-sky-600 text-white shadow'
+                : 'text-content-muted hover:text-content-secondary hover:bg-border/60'
+            }`}
+          >
+            <Cog className="w-3.5 h-3.5" />
+            <span>Services</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('logs')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition ${
+              activeTab === 'logs'
+                ? 'bg-sky-600 text-white shadow'
+                : 'text-content-muted hover:text-content-secondary hover:bg-border/60'
+            }`}
+          >
+            <ScrollText className="w-3.5 h-3.5" />
+            <span>Logs</span>
+          </button>
         </div>
+
+        <HostKeyBadge serverId={server.id} />
 
         {/* Quick Probe */}
         <button
           onClick={handleTestConnection}
           disabled={isTesting}
-          className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 font-medium transition"
+          className="flex items-center gap-1 px-2.5 py-1.5 bg-panel-alt hover:bg-border text-content-secondary rounded border border-border font-medium transition"
           title="Test SSH and VNC Connection"
         >
           {isTesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Shield className="w-3.5 h-3.5 text-sky-400" />}
@@ -238,8 +278,11 @@ export const ServerDetailPage: React.FC<ServerDetailPageProps> = ({
           />
         )}
 
-        {activeTab === 'terminal' && (
-          <SshTerminal serverId={server.id} serverName={server.name} />
+        {/* Mounted once opened and then only hidden, so shells survive switching tabs. */}
+        {terminalOpened && (
+          <div className={activeTab === 'terminal' ? 'h-full' : 'hidden'}>
+            <TerminalWorkspace key={server.id} serverId={server.id} serverName={server.name} isActive={activeTab === 'terminal'} />
+          </div>
         )}
 
         {activeTab === 'files' && (
@@ -260,6 +303,14 @@ export const ServerDetailPage: React.FC<ServerDetailPageProps> = ({
 
         {activeTab === 'network' && (
           <NetworkMonitor serverId={server.id} serverName={server.name} />
+        )}
+
+        {activeTab === 'services' && (
+          <ServiceManager serverId={server.id} serverName={server.name} />
+        )}
+
+        {activeTab === 'logs' && (
+          <LogExplorer serverId={server.id} serverName={server.name} />
         )}
       </div>
     </div>

@@ -1,0 +1,46 @@
+{
+  "id": "uptime-checker",
+  "name": "Uptime & SSL Checker",
+  "version": "1.0.0",
+  "description": "Monitors HTTP endpoints, TCP ports and TLS certificate expiry, and alerts your notification channels when something changes state.",
+  "author": "IOC",
+  "main": "index.mjs",
+  "permissions": ["notify", "routes", "scheduler"],
+  "ui": {
+    "pages": [
+      {
+        "id": "checks",
+        "title": "Uptime",
+        "icon": "activity",
+        "widgets": [
+          { "type": "stats", "source": "stats" },
+          {
+            "type": "table",
+            "title": "Checks",
+            "source": "checks",
+            "columns": [
+              { "key": "name", "label": "Name" },
+              { "key": "type", "label": "Type" },
+              { "key": "target", "label": "Target" },
+              { "key": "status", "label": "Status", "format": "badge" },
+              { "key": "detail", "label": "Detail" },
+              { "key": "latencyMs", "label": "ms" },
+              { "key": "lastChecked", "label": "Last check", "format": "datetime" }
+            ],
+            "rowActions": [{ "label": "Delete", "method": "DELETE", "path": "checks/:id", "confirm": true }]
+          },
+          {
+            "type": "form",
+            "title": "Add a check",
+            "submit": { "method": "POST", "path": "checks" },
+            "fields": [
+              { "name": "name", "label": "Name", "required": true, "placeholder": "Production site" },
+              { "name": "type", "label": "Type", "type": "select", "options": ["http", "tcp", "ssl"], "default": "http" },
+              { "name": "target", "label": "Target", "required": true, "placeholder": "https://example.com | host:port | example.com" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

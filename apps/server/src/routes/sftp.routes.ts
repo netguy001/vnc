@@ -74,6 +74,57 @@ export function registerSftpRoutes(fastify: FastifyInstance): void {
     }
   });
 
+  // Read a text file's contents (for inline editing)
+  fastify.get('/api/servers/:id/files/content', async (req: FastifyRequest<{ Params: { id: string }; Querystring: { path?: string } }>, reply: FastifyReply) => {
+    const { id } = req.params;
+    const remotePath = req.query.path;
+    if (!remotePath) {
+      return reply.status(400).send({ error: 'Query param "path" is required' });
+    }
+
+    const creds = serverService.getDecryptedCredentials(id);
+    if (!creds || !creds.server) {
+      return reply.status(404).send({ error: 'Server not found' });
+    }
+
+    try {
+      const content = await sftpService.readFileAsText(creds, remotePath);
+      return reply.send({ path: remotePath, content });
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message });
+    }
+  });
+
+  // Write/save a text file's contents (for inline editing)
+  fastify.put('/api/servers/:id/files/content', async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    const { id } = req.params;
+    const body = req.body as { path?: string; content?: string };
+    if (!body?.path || body.content === undefined) {
+      return reply.status(400).send({ error: '"path" and "content" are required' });
+    }
+
+    const creds = serverService.getDecryptedCredentials(id);
+    if (!creds || !creds.server) {
+      return reply.status(404).send({ error: 'Server not found' });
+    }
+
+    try {
+      await sftpService.writeFileFromText(creds, body.path, body.content);
+      auditService.log({
+        userId: req.user?.userId,
+        username: req.user?.username,
+        action: 'SFTP_EDIT',
+        serverId: id,
+        serverName: creds.server.name,
+        details: `Edited ${body.path}`,
+        ipAddress: req.ip,
+      });
+      return reply.send({ success: true });
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message });
+    }
+  });
+
   // Upload file
   fastify.post('/api/servers/:id/files/upload', async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     const { id } = req.params;

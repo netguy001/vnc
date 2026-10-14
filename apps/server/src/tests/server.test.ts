@@ -75,8 +75,8 @@ describe('ServerConsole Backend Core Services', () => {
   describe('ServerService & Credential Security', () => {
     it('creates server and protects credentials from leak', () => {
       const created = serverService.createServer({
-        name: 'Contabo Production VPS',
-        host: '194.163.150.10',
+        name: 'Primary Linux Node',
+        host: '192.0.2.10',
         sshPort: 22,
         sshUsername: 'root',
         authMethod: 'password',
@@ -87,7 +87,7 @@ describe('ServerConsole Backend Core Services', () => {
       });
 
       expect(created.id).toBeTruthy();
-      expect(created.name).toBe('Contabo Production VPS');
+      expect(created.name).toBe('Primary Linux Node');
       expect(created.hasSshPassword).toBe(true);
       expect(created.hasVncPassword).toBe(true);
 

@@ -28,6 +28,8 @@ export interface ServerDTO {
   isEnabled: boolean;
   status: ServerStatusType;
   lastConnectedAt?: string;
+  tags: string[];
+  isFavorite: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -48,6 +50,8 @@ export interface ServerCreateInput {
   serverGroup?: string;
   description?: string;
   isEnabled?: boolean;
+  tags?: string[];
+  isFavorite?: boolean;
 }
 
 export interface ServerUpdateInput extends Partial<ServerCreateInput> {}
@@ -326,4 +330,95 @@ export interface PortProbeResult {
   message: string;
 }
 
+export interface UserPreferencesDTO {
+  themeMode: 'dark' | 'light' | 'system';
+  dashboardRefreshSeconds: number;
+  defaultLandingTab: string;
+  defaultSshPort: number;
+  defaultSshUsername: string;
+  defaultVncPort: number;
+}
 
+export interface UpdatePreferencesInput extends Partial<UserPreferencesDTO> {}
+
+export interface CommandSnippetDTO {
+  id: string;
+  label: string;
+  command: string;
+  serverId?: string;
+  createdAt: string;
+}
+
+export interface CommandSnippetCreateInput {
+  label: string;
+  command: string;
+  serverId?: string;
+}
+
+export interface ChangePasswordInput {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface UpdateAccountInput {
+  username?: string;
+  email?: string;
+}
+
+export interface ServerListExport {
+  exportedAt: string;
+  version: string;
+  servers: Array<ServerCreateInput & { name: string }>;
+}
+
+
+// ---------- Metrics history & alerting ----------
+
+export interface MetricSample {
+  ts: number; // epoch ms
+  available: boolean;
+  cpu: number | null;
+  mem: number | null;
+  disk: number | null;
+  load1: number | null;
+  latencyMs: number | null;
+}
+
+export type AlertMetric = 'cpu' | 'mem' | 'disk' | 'load' | 'offline';
+
+export interface AlertRuleDTO {
+  id: string;
+  name: string;
+  serverId: string | null; // null = applies to every server
+  metric: AlertMetric;
+  threshold: number;
+  durationMin: number;
+  channelIds: string[];
+  isEnabled: boolean;
+  createdAt: string;
+}
+
+export interface AlertEventDTO {
+  id: string;
+  ruleId: string;
+  serverId: string;
+  ruleName: string;
+  serverName: string;
+  metric: AlertMetric;
+  threshold: number;
+  peakValue: number | null;
+  startedAt: string;
+  resolvedAt: string | null;
+}
+
+export type NotificationChannelType = 'telegram' | 'discord' | 'slack' | 'webhook' | (string & {});
+
+export interface NotificationChannelDTO {
+  id: string;
+  name: string;
+  type: NotificationChannelType;
+  isEnabled: boolean;
+  /** Non-secret hint, e.g. the webhook host or Telegram chat id */
+  summary: string;
+  createdAt: string;
+}

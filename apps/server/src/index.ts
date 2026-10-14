@@ -6,11 +6,23 @@ import multipart from '@fastify/multipart';
 import { config } from './config.js';
 import { getDatabase } from './db/client.js';
 import { runMigrations } from './db/migrations.js';
+import { migrateLegacyCredentialKey } from './services/key-migration.js';
 import { authService } from './services/auth.service.js';
 import { registerAuthRoutes } from './routes/auth.routes.js';
 import { registerServerRoutes } from './routes/server.routes.js';
 import { registerSftpRoutes } from './routes/sftp.routes.js';
 import { registerAuditRoutes } from './routes/audit.routes.js';
+import { sshService } from './services/ssh.service.js';
+import { registerAccountRoutes } from './routes/account.routes.js';
+import { registerOpsRoutes } from './routes/ops.routes.js';
+import { runbookService } from './services/runbook.service.js';
+import { registerPluginRoutes } from './routes/plugins.routes.js';
+import { pluginService } from './plugins/plugin.service.js';
+import { registerAlertRoutes } from './routes/alerts.routes.js';
+import { metricsStore } from './services/metrics-store.service.js';
+import { registerSettingsRoutes } from './routes/settings.routes.js';
+import { registerLiveWebSocket } from './routes/live.ws.js';
+import { liveService } from './services/live.service.js';
 import { registerVncWebSocket } from './routes/vnc.ws.js';
 import { registerTerminalWebSocket } from './routes/terminal.ws.js';
 
@@ -34,13 +46,14 @@ export async function createServer() {
   // 1. Initialize Database & Synchronize Admin Config
   const db = getDatabase();
   runMigrations(db);
+  migrateLegacyCredentialKey();
   await authService.syncAdminConfig();
 
   // 2. Register plugins
   await fastify.register(cors, {
     origin: [config.frontendUrl, 'http://localhost:5173', 'http://127.0.0.1:5173'],
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
   await fastify.register(cookie, {
@@ -59,6 +72,16 @@ export async function createServer() {
     },
   });
 
+  // Baseline security headers
+  fastify.addHook('onSend', async (_req, reply) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Frame-Options', 'DENY');
+    reply.header('Referrer-Policy', 'no-referrer');
+    reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    reply.header('Cross-Origin-Resource-Policy', 'same-origin');
+    reply.header('Cache-Control', 'no-store');
+  });
+
   // Centralized Error Handling
   fastify.setErrorHandler((error, req, reply) => {
     req.log.error(error);
@@ -75,10 +98,16 @@ export async function createServer() {
   registerServerRoutes(fastify);
   registerSftpRoutes(fastify);
   registerAuditRoutes(fastify);
+  registerSettingsRoutes(fastify);
+  registerAlertRoutes(fastify);
+  registerPluginRoutes(fastify);
+  registerOpsRoutes(fastify);
+  registerAccountRoutes(fastify);
 
   // 4. Register WebSockets
   registerVncWebSocket(fastify);
   registerTerminalWebSocket(fastify);
+  registerLiveWebSocket(fastify);
 
   return fastify;
 }
@@ -87,6 +116,21 @@ async function start() {
   try {
     const server = await createServer();
     await server.listen({ port: config.port, host: config.host });
+    metricsStore.start();
+    runbookService.startScheduler();
+    await pluginService.loadAll();
+
+    const shutdown = async () => {
+      metricsStore.stop();
+      liveService.shutdown();
+      runbookService.stopScheduler();
+      await pluginService.shutdown();
+      sshService.closeAll();
+      await server.close();
+      process.exit(0);
+    };
+    process.once('SIGINT', shutdown);
+    process.once('SIGTERM', shutdown);
     console.log(`\n====================================================`);
     console.log(` ServerConsole Backend listening on http://${config.host}:${config.port}`);
     console.log(` Frontend URL: ${config.frontendUrl}`);

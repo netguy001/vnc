@@ -37,7 +37,7 @@ Registers a new server and encrypts credentials with AES-256-GCM.
   ```json
   {
     "name": "Production Server",
-    "host": "194.163.150.10",
+    "host": "192.0.2.10",
     "sshPort": 22,
     "sshUsername": "root",
     "authMethod": "password",
@@ -65,7 +65,7 @@ Performs live SSH authentication and VNC port reachability probes.
   {
     "result": {
       "sshSuccess": true,
-      "sshMessage": "SSH connection successful to 194.163.150.10:22",
+      "sshMessage": "SSH connection successful to 192.0.2.10:22",
       "vncSuccess": true,
       "vncMessage": "VNC port 5900 is reachable",
       "latencyMs": 42
@@ -105,8 +105,59 @@ Accepts multipart file upload with `targetDir` and `file`.
 
 ## WebSocket Endpoints
 
-### `WS /api/servers/:id/vnc?token=<jwt>`
-Full-duplex binary proxy between noVNC client and backend VNC TCP server.
+### `WS /api/servers/:id/vnc`
+Authenticated by the session cookie (+ Origin check); requires the `operator` role. Full-duplex binary proxy between noVNC client and backend VNC TCP server.
 
-### `WS /api/servers/:id/terminal?token=<jwt>&cols=80&rows=24`
+### `WS /api/servers/:id/terminal?cols=80&rows=24`
 Interactive SSH pseudo-terminal stream supporting PTY resizing (`{ type: "resize", cols, rows }`).
+
+---
+
+## Additional endpoints
+
+Authentication: session cookie or `Authorization: Bearer <jwt | ioc_api_token>`. Minimum role in brackets.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/servers/:id/metrics/history?range=1h\|6h\|24h\|7d` [viewer] | Stored telemetry samples |
+| `GET /api/servers/:id/monitor?fresh=1` [viewer] | Latest telemetry (cached unless `fresh=1`) |
+| `GET /api/servers/:id/services` [operator], `POST /api/servers/:id/services/:name/:action` [operator for start/stop/restart, admin for reload/enable/disable] | systemd services |
+| `GET /api/servers/:id/logs?source=journal\|unit:<name>\|file:/var/log/..\|docker:<name>&lines=&filter=&since=` [operator] | Log explorer |
+| `POST /api/servers/:id/docker/containers/:name/(start\|stop\|restart)` [operator] | Container actions |
+| `GET /api/servers/:id/host-key`, `POST .../host-key/reset` [admin] | SSH host-key pinning |
+| `POST /api/servers/:id/ai/diagnose` [operator] | AI health analysis (needs `ANTHROPIC_API_KEY`) |
+| `GET/POST/PUT/DELETE /api/alerts/rules`, `GET /api/alerts/events` | Alert rules and history (writes: admin) |
+| `GET/POST/PUT/DELETE /api/alerts/channels`, `POST .../:id/test` [admin] | Notification channels |
+| `GET/POST/DELETE /api/runbooks`, `POST /api/runbooks/:id/run` [admin] | Runbooks |
+| `GET/POST/PUT/DELETE /api/auth/users` [admin] | User management |
+| `GET/POST/DELETE /api/auth/tokens` | Own API tokens |
+| `GET /api/auth/totp`, `POST /api/auth/totp/(setup\|enable\|disable)` | Own 2FA |
+| `GET /api/plugin-manager`, `POST /api/plugin-manager/:id/(enable\|disable)` [admin] | Plugins |
+| `* /api/plugins/:id/*` | Endpoints provided by plugins |
+
+`POST /api/auth/login` accepts an optional `totp` field; when 2FA is on and the code is missing it returns `401 { "totpRequired": true }`.
+
+---
+
+## Real-time channel
+
+### `WS /api/live`
+One multiplexed, read-only WebSocket for live data (session cookie + Origin check, any role). Client messages:
+
+```json
+{ "type": "subscribe",   "topic": "metrics" | "network" | "docker", "serverId": "<id>" }
+{ "type": "unsubscribe", "topic": "metrics", "serverId": "<id>" }
+{ "type": "ping", "t": 123 }
+```
+
+Server messages: `hello`, `pong`, `error`, and
+
+```json
+{ "type": "data", "topic": "metrics", "serverId": "<id>", "payload": { ... }, "ts": 1760000000000 }
+{ "type": "status", "serverId": "<id>", "status": "connected" | "error" | ... }   // broadcast to every client
+{ "type": "alert", "state": "fired" | "resolved", "ruleName": "...", "serverName": "..." } // broadcast
+```
+
+A topic is polled on the server **only while it has subscribers** (metrics and network every 3 s, docker every 5 s), polls never overlap,
+and history is still written at most once per `METRICS_INTERVAL_SEC`. Payloads are the same shapes as the matching REST endpoints
+(`/monitor`, `/network`, `/docker`).

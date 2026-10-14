@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { getDatabase } from '../db/client.js';
+import { events } from './events.js';
 import { AuditLogDTO } from '@server-console/shared';
 
 export class AuditService {
@@ -33,6 +34,12 @@ export class AuditService {
           now,
         ]
       );
+      events.emit('audit.logged', {
+        action: params.action,
+        username: params.username,
+        serverId: params.serverId,
+        details: params.details,
+      });
     } catch (err) {
       console.error('[AuditService] Failed to record audit log:', err);
     }
@@ -61,6 +68,12 @@ export class AuditService {
       success: Boolean(r.success),
       ipAddress: r.ipAddress || undefined,
     }));
+  }
+
+  clearLogs(): number {
+    const db = getDatabase();
+    const result = db.run('DELETE FROM audit_logs');
+    return result.changes;
   }
 }
 

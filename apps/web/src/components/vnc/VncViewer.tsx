@@ -153,6 +153,12 @@ export const VncViewer: React.FC<VncViewerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<any>(null);
   const quickInputRef = useRef<HTMLInputElement>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const unmountedRef = useRef(false);
+  const manualDisconnectRef = useRef(false);
+  const [reconnectCountdown, setReconnectCountdown] = useState<number | null>(null);
 
   const [status, setStatus] = useState<'connected' | 'connecting' | 'disconnected' | 'error'>('disconnected');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -242,10 +248,24 @@ export const VncViewer: React.FC<VncViewerProps> = ({
     }
   };
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (isAutoReconnect = false) => {
     if (!containerRef.current) return;
 
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    if (reconnectTickRef.current) {
+      clearInterval(reconnectTickRef.current);
+      reconnectTickRef.current = null;
+    }
+    setReconnectCountdown(null);
+    if (!isAutoReconnect) {
+      reconnectAttemptsRef.current = 0;
+    }
+
     // Disconnect existing
+    manualDisconnectRef.current = true;
     if (rfbRef.current) {
       try {
         rfbRef.current.disconnect();
@@ -284,16 +304,44 @@ export const VncViewer: React.FC<VncViewerProps> = ({
       rfb.scaleViewport = isScaleViewport;
       rfb.resizeSession = false;
 
+      manualDisconnectRef.current = false;
+
       rfb.addEventListener('connect', () => {
         updateStatus('connected');
         setErrorMessage(null);
         setShowPasswordModal(false);
+        reconnectAttemptsRef.current = 0;
       });
 
       rfb.addEventListener('disconnect', (e: any) => {
         updateStatus('disconnected');
         if (e.detail?.clean === false) {
           setErrorMessage('VNC connection closed unexpectedly.');
+        }
+
+        if (!manualDisconnectRef.current && !unmountedRef.current && e.detail?.clean === false) {
+          reconnectAttemptsRef.current += 1;
+          const attempt = reconnectAttemptsRef.current;
+          const delayMs = Math.min(1000 * 2 ** (attempt - 1), 15000);
+          let remaining = Math.ceil(delayMs / 1000);
+          setReconnectCountdown(remaining);
+
+          const tick = setInterval(() => {
+            if (unmountedRef.current) {
+              clearInterval(tick);
+              return;
+            }
+            remaining -= 1;
+            setReconnectCountdown(remaining > 0 ? remaining : null);
+            if (remaining <= 0) clearInterval(tick);
+          }, 1000);
+          reconnectTickRef.current = tick;
+
+          reconnectTimerRef.current = setTimeout(() => {
+            clearInterval(tick);
+            reconnectTickRef.current = null;
+            if (!unmountedRef.current) connect(true);
+          }, delayMs);
         }
       });
 
@@ -326,9 +374,20 @@ export const VncViewer: React.FC<VncViewerProps> = ({
   }, [serverId, isScaleViewport]);
 
   useEffect(() => {
+    unmountedRef.current = false;
     connect();
 
     return () => {
+      unmountedRef.current = true;
+      manualDisconnectRef.current = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      if (reconnectTickRef.current) {
+        clearInterval(reconnectTickRef.current);
+        reconnectTickRef.current = null;
+      }
       if (rfbRef.current) {
         try {
           rfbRef.current.disconnect();
@@ -486,12 +545,12 @@ export const VncViewer: React.FC<VncViewerProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0f1d] border border-slate-800 rounded-lg overflow-hidden shadow-2xl">
+    <div className="flex flex-col h-full bg-panel-inset border border-border rounded-lg overflow-hidden shadow-2xl">
       {/* VNC Top Control Toolbar */}
-      <div className="flex flex-wrap items-center justify-between px-3 py-2 bg-slate-900/90 border-b border-slate-800 text-xs text-slate-300 gap-2 select-none">
+      <div className="flex flex-wrap items-center justify-between px-3 py-2 bg-panel/90 border-b border-border text-xs text-content-secondary gap-2 select-none">
         {/* Status & Desktop Info */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-800/80 border border-slate-700 font-mono">
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-panel-alt/80 border border-border font-mono">
             {status === 'connected' && (
               <>
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -506,8 +565,10 @@ export const VncViewer: React.FC<VncViewerProps> = ({
             )}
             {status === 'disconnected' && (
               <>
-                <span className="w-2 h-2 rounded-full bg-slate-500" />
-                <span className="text-slate-400 font-medium">DISCONNECTED</span>
+                <span className="w-2 h-2 rounded-full bg-content-muted" />
+                <span className="text-content-muted font-medium">
+                  {reconnectCountdown !== null ? `RECONNECTING (${reconnectCountdown}s)` : 'DISCONNECTED'}
+                </span>
               </>
             )}
             {status === 'error' && (
@@ -517,7 +578,7 @@ export const VncViewer: React.FC<VncViewerProps> = ({
               </>
             )}
           </div>
-          <span className="text-slate-400 font-medium truncate max-w-[200px]" title={desktopName}>
+          <span className="text-content-muted font-medium truncate max-w-[200px]" title={desktopName}>
             {desktopName}
           </span>
         </div>
@@ -525,48 +586,48 @@ export const VncViewer: React.FC<VncViewerProps> = ({
         {/* Action Controls Toolbar */}
         <div className="flex items-center gap-1">
           <button
-            onClick={connect}
+            onClick={() => connect()}
             title="Reconnect VNC session"
-            className="flex items-center gap-1 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
+            className="flex items-center gap-1 px-2 py-1 rounded bg-panel-alt hover:bg-border text-content-secondary border border-border transition"
           >
             <RotateCcw className="w-3.5 h-3.5 text-sky-400" />
             <span>Reconnect</span>
           </button>
 
-          <div className="h-4 w-[1px] bg-slate-700 mx-1" />
+          <div className="h-4 w-[1px] bg-border mx-1" />
 
           {/* Special Keys Toolbar */}
           <button
             onClick={() => sendKey(KEY_SYMS.Ctrl)}
-            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 font-mono text-[11px] text-slate-300 border border-slate-700"
+            className="px-2 py-1 rounded bg-panel-alt hover:bg-border font-mono text-[11px] text-content-secondary border border-border"
             title="Send Ctrl key"
           >
             Ctrl
           </button>
           <button
             onClick={() => sendKey(KEY_SYMS.Alt)}
-            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 font-mono text-[11px] text-slate-300 border border-slate-700"
+            className="px-2 py-1 rounded bg-panel-alt hover:bg-border font-mono text-[11px] text-content-secondary border border-border"
             title="Send Alt key"
           >
             Alt
           </button>
           <button
             onClick={() => sendKey(KEY_SYMS.Esc)}
-            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 font-mono text-[11px] text-slate-300 border border-slate-700"
+            className="px-2 py-1 rounded bg-panel-alt hover:bg-border font-mono text-[11px] text-content-secondary border border-border"
             title="Send Escape key"
           >
             Esc
           </button>
           <button
             onClick={() => sendKey(KEY_SYMS.Tab)}
-            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 font-mono text-[11px] text-slate-300 border border-slate-700"
+            className="px-2 py-1 rounded bg-panel-alt hover:bg-border font-mono text-[11px] text-content-secondary border border-border"
             title="Send Tab key"
           >
             Tab
           </button>
           <button
             onClick={() => sendKey(KEY_SYMS.Super)}
-            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 font-mono text-[11px] text-slate-300 border border-slate-700"
+            className="px-2 py-1 rounded bg-panel-alt hover:bg-border font-mono text-[11px] text-content-secondary border border-border"
             title="Send Windows / Super key"
           >
             Win
@@ -579,12 +640,12 @@ export const VncViewer: React.FC<VncViewerProps> = ({
             Ctrl+Alt+Del
           </button>
 
-          <div className="h-4 w-[1px] bg-slate-700 mx-1" />
+          <div className="h-4 w-[1px] bg-border mx-1" />
 
           {/* Clipboard & Tools */}
           <button
             onClick={handleDirectPaste}
-            className="flex items-center gap-1 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+            className="flex items-center gap-1 px-2 py-1 rounded bg-panel-alt hover:bg-border text-content-secondary border border-border"
             title="Paste clipboard text into remote console (or press Ctrl+V)"
           >
             <ClipboardPaste className="w-3.5 h-3.5 text-emerald-400" />
@@ -593,7 +654,7 @@ export const VncViewer: React.FC<VncViewerProps> = ({
 
           <button
             onClick={handleCopyScreenImage}
-            className="flex items-center gap-1 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+            className="flex items-center gap-1 px-2 py-1 rounded bg-panel-alt hover:bg-border text-content-secondary border border-border"
             title="Copy screenshot of remote console to your clipboard"
           >
             <Copy className="w-3.5 h-3.5 text-sky-400" />
@@ -602,7 +663,7 @@ export const VncViewer: React.FC<VncViewerProps> = ({
 
           <button
             onClick={() => setShowClipboardModal(true)}
-            className="flex items-center gap-1 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+            className="flex items-center gap-1 px-2 py-1 rounded bg-panel-alt hover:bg-border text-content-secondary border border-border"
             title="Open clipboard typing & sync manager"
           >
             <Clipboard className="w-3.5 h-3.5 text-amber-400" />
@@ -614,7 +675,7 @@ export const VncViewer: React.FC<VncViewerProps> = ({
             className={`flex items-center gap-1 px-2 py-1 rounded border transition ${
               isScaleViewport
                 ? 'bg-sky-950/60 border-sky-600 text-sky-300'
-                : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                : 'bg-panel-alt border-border text-content-secondary hover:bg-border'
             }`}
             title="Toggle Fit to Screen / 1:1 Scale"
           >
@@ -624,7 +685,7 @@ export const VncViewer: React.FC<VncViewerProps> = ({
 
           <button
             onClick={handleScreenshot}
-            className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+            className="p-1 rounded bg-panel-alt hover:bg-border text-content-secondary border border-border"
             title="Download Screenshot"
           >
             <Camera className="w-3.5 h-3.5 text-purple-400" />
@@ -632,7 +693,7 @@ export const VncViewer: React.FC<VncViewerProps> = ({
 
           <button
             onClick={toggleFullscreen}
-            className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+            className="p-1 rounded bg-panel-alt hover:bg-border text-content-secondary border border-border"
             title="Fullscreen"
           >
             {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
@@ -652,12 +713,12 @@ export const VncViewer: React.FC<VncViewerProps> = ({
 
         {/* Error overlay */}
         {status === 'error' && (
-          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-20 flex flex-col items-center justify-center p-6 text-center">
+          <div className="absolute inset-0 bg-panel-inset/80 backdrop-blur-sm z-20 flex flex-col items-center justify-center p-6 text-center">
             <ShieldAlert className="w-12 h-12 text-rose-500 mb-3" />
             <h3 className="text-lg font-semibold text-rose-300">VNC Connection Failed</h3>
-            <p className="text-sm text-slate-400 max-w-md mt-1 mb-4">{errorMessage || 'Connection could not be established.'}</p>
+            <p className="text-sm text-content-muted max-w-md mt-1 mb-4">{errorMessage || 'Connection could not be established.'}</p>
             <button
-              onClick={connect}
+              onClick={() => connect()}
               className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded text-sm font-medium transition"
             >
               Try Again
@@ -667,12 +728,18 @@ export const VncViewer: React.FC<VncViewerProps> = ({
 
         {/* Disconnected overlay */}
         {status === 'disconnected' && !errorMessage && (
-          <div className="absolute inset-0 bg-slate-950/70 z-20 flex flex-col items-center justify-center p-6 text-center">
-            <WifiOff className="w-10 h-10 text-slate-500 mb-3" />
-            <h3 className="text-base font-semibold text-slate-300">VNC Session Inactive</h3>
-            <p className="text-xs text-slate-400 max-w-xs mt-1 mb-4">Click reconnect to start the remote desktop session.</p>
+          <div className="absolute inset-0 bg-panel-inset/70 z-20 flex flex-col items-center justify-center p-6 text-center">
+            <WifiOff className="w-10 h-10 text-content-muted mb-3" />
+            <h3 className="text-base font-semibold text-content-secondary">
+              {reconnectCountdown !== null ? 'Reconnecting…' : 'VNC Session Inactive'}
+            </h3>
+            <p className="text-xs text-content-muted max-w-xs mt-1 mb-4">
+              {reconnectCountdown !== null
+                ? `Retrying in ${reconnectCountdown}s...`
+                : 'Click reconnect to start the remote desktop session.'}
+            </p>
             <button
-              onClick={connect}
+              onClick={() => connect()}
               className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded text-sm font-medium transition"
             >
               Connect Now
@@ -685,8 +752,8 @@ export const VncViewer: React.FC<VncViewerProps> = ({
       </div>
 
       {/* Quick Paste & Command Bar */}
-      <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/95 border-t border-slate-800 text-xs text-slate-300">
-        <div className="flex items-center gap-1.5 text-slate-400 font-mono text-[11px] shrink-0">
+      <div className="flex items-center gap-2 px-3 py-2 bg-panel/95 border-t border-border text-xs text-content-secondary">
+        <div className="flex items-center gap-1.5 text-content-muted font-mono text-[11px] shrink-0">
           <TerminalIcon className="w-3.5 h-3.5 text-emerald-400" />
           <span>Quick Paste:</span>
         </div>
@@ -704,12 +771,12 @@ export const VncViewer: React.FC<VncViewerProps> = ({
               }
             }}
             placeholder="Type or paste (Ctrl+V) command/password and press Enter to type into console..."
-            className="w-full pl-3 pr-8 py-1.5 bg-slate-950 border border-slate-700/80 rounded text-xs text-slate-200 font-mono focus:outline-none focus:border-sky-500 placeholder:text-slate-600"
+            className="w-full pl-3 pr-8 py-1.5 bg-panel-inset border border-border-strong/80 rounded text-xs text-content-secondary font-mono focus:outline-none focus:border-sky-500 placeholder:text-content-muted"
           />
           {quickInputText && (
             <button
               onClick={() => setQuickInputText('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-xs"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-content-muted hover:text-content-secondary text-xs"
             >
               ✕
             </button>
@@ -720,9 +787,9 @@ export const VncViewer: React.FC<VncViewerProps> = ({
           onClick={() => handleQuickSubmit(false)}
           disabled={!quickInputText || isTyping || status !== 'connected'}
           title="Send text to console without pressing Enter"
-          className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-medium rounded border border-slate-700 transition"
+          className="flex items-center gap-1 px-2.5 py-1.5 bg-panel-alt hover:bg-border disabled:opacity-50 text-content-secondary text-xs font-medium rounded border border-border transition"
         >
-          <Send className="w-3 h-3 text-slate-400" />
+          <Send className="w-3 h-3 text-content-muted" />
           <span>Send</span>
         </button>
 
@@ -761,15 +828,15 @@ export const VncViewer: React.FC<VncViewerProps> = ({
       {/* Clipboard & Keystroke Typing Modal */}
       {showClipboardModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-lg max-w-md w-full p-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-semibold text-slate-100 flex items-center gap-2 text-sm">
+          <div className="bg-panel border border-border-strong rounded-lg max-w-md w-full p-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <h3 className="font-semibold text-content-primary flex items-center gap-2 text-sm">
                 <Clipboard className="w-4 h-4 text-sky-400" />
                 VNC Clipboard & Paste
               </h3>
               <button
                 onClick={() => setShowClipboardModal(false)}
-                className="text-slate-400 hover:text-slate-200 text-sm"
+                className="text-content-muted hover:text-content-secondary text-sm"
               >
                 ✕
               </button>
@@ -777,7 +844,7 @@ export const VncViewer: React.FC<VncViewerProps> = ({
 
             <div className="mt-4 space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
+                <label className="block text-xs font-medium text-content-secondary mb-1">
                   Type or paste text to inject into remote console:
                 </label>
                 <textarea
@@ -786,7 +853,7 @@ export const VncViewer: React.FC<VncViewerProps> = ({
                   value={clipboardText}
                   onChange={(e) => setClipboardText(e.target.value)}
                   placeholder="Paste commands, passwords, or text here (Ctrl+V)..."
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded text-xs text-slate-200 font-mono focus:outline-none focus:border-sky-500"
+                  className="w-full px-3 py-2 bg-panel-inset border border-border-strong rounded text-xs text-content-secondary font-mono focus:outline-none focus:border-sky-500"
                 />
                 <div className="flex gap-2 mt-2">
                   <button
@@ -797,7 +864,7 @@ export const VncViewer: React.FC<VncViewerProps> = ({
                       } catch {}
                     }}
                     type="button"
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded transition"
+                    className="px-3 py-1.5 bg-panel-alt hover:bg-border text-content-secondary text-xs font-medium rounded transition"
                   >
                     Paste from Clipboard
                   </button>
@@ -811,8 +878,8 @@ export const VncViewer: React.FC<VncViewerProps> = ({
                 </div>
               </div>
 
-              <div className="p-2.5 rounded bg-slate-950/70 border border-slate-800 text-[11px] text-slate-400 space-y-1">
-                <div className="font-medium text-slate-300 flex items-center gap-1.5">
+              <div className="p-2.5 rounded bg-panel-inset/70 border border-border text-[11px] text-content-muted space-y-1">
+                <div className="font-medium text-content-secondary flex items-center gap-1.5">
                   <span>💡</span> How to Copy Text Output
                 </div>
                 <div>
@@ -835,9 +902,9 @@ export const VncViewer: React.FC<VncViewerProps> = ({
               </div>
 
               {lastVncClipboard && (
-                <div className="pt-3 border-t border-slate-800">
-                  <span className="block text-xs text-slate-400 mb-1">Last received from remote clipboard:</span>
-                  <div className="p-2 bg-slate-950 rounded border border-slate-800 text-xs font-mono text-slate-300 max-h-24 overflow-auto">
+                <div className="pt-3 border-t border-border">
+                  <span className="block text-xs text-content-muted mb-1">Last received from remote clipboard:</span>
+                  <div className="p-2 bg-panel-inset rounded border border-border text-xs font-mono text-content-secondary max-h-24 overflow-auto">
                     {lastVncClipboard}
                   </div>
                   <button
@@ -859,15 +926,15 @@ export const VncViewer: React.FC<VncViewerProps> = ({
       {/* VNC Password Prompt Modal */}
       {showPasswordModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-lg max-w-sm w-full p-5 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-semibold text-slate-100 flex items-center gap-2 text-sm">
+          <div className="bg-panel border border-border-strong rounded-lg max-w-sm w-full p-5 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <h3 className="font-semibold text-content-primary flex items-center gap-2 text-sm">
                 <Lock className="w-4 h-4 text-sky-400" />
                 VNC Authentication Required
               </h3>
               <button
                 onClick={() => setShowPasswordModal(false)}
-                className="text-slate-400 hover:text-slate-200 text-sm"
+                className="text-content-muted hover:text-content-secondary text-sm"
               >
                 ✕
               </button>
@@ -884,7 +951,7 @@ export const VncViewer: React.FC<VncViewerProps> = ({
               className="mt-4 space-y-3"
             >
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
+                <label className="block text-xs font-medium text-content-secondary mb-1">
                   VNC Password:
                 </label>
                 <div className="relative">
@@ -895,12 +962,12 @@ export const VncViewer: React.FC<VncViewerProps> = ({
                     value={vncPasswordInput}
                     onChange={(e) => setVncPasswordInput(e.target.value)}
                     placeholder="Enter VNC password"
-                    className="w-full pl-3 pr-10 py-2 bg-slate-950 border border-slate-700 rounded text-xs text-slate-100 font-mono focus:outline-none focus:border-sky-500"
+                    className="w-full pl-3 pr-10 py-2 bg-panel-inset border border-border-strong rounded text-xs text-content-primary font-mono focus:outline-none focus:border-sky-500"
                   />
                   <button
                     type="button"
                     onClick={() => setShowVncPasswordText(!showVncPasswordText)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-500 hover:text-slate-300 focus:outline-none"
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-content-muted hover:text-content-secondary focus:outline-none"
                     title={showVncPasswordText ? 'Hide password' : 'Show password'}
                   >
                     {showVncPasswordText ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -912,7 +979,7 @@ export const VncViewer: React.FC<VncViewerProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowPasswordModal(false)}
-                  className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs"
+                  className="px-3 py-1.5 rounded bg-panel-alt hover:bg-border text-content-secondary text-xs"
                 >
                   Cancel
                 </button>

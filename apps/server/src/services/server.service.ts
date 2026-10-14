@@ -60,8 +60,8 @@ export class ServerService {
       `INSERT INTO servers (
         id, name, host, ssh_port, ssh_username, auth_method,
         vnc_host, vnc_port, vnc_enabled, server_group,
-        description, is_enabled, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        description, is_enabled, status, tags, is_favorite, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         input.name,
@@ -76,6 +76,8 @@ export class ServerService {
         input.description || null,
         input.isEnabled !== false ? 1 : 0,
         'disconnected',
+        (input.tags || []).join(','),
+        input.isFavorite ? 1 : 0,
         now,
         now,
       ]
@@ -132,6 +134,8 @@ export class ServerService {
         server_group = COALESCE(?, server_group),
         description = COALESCE(?, description),
         is_enabled = COALESCE(?, is_enabled),
+        tags = COALESCE(?, tags),
+        is_favorite = COALESCE(?, is_favorite),
         updated_at = ?
       WHERE id = ?`,
       [
@@ -146,6 +150,8 @@ export class ServerService {
         input.serverGroup ?? null,
         input.description ?? null,
         input.isEnabled !== undefined ? (input.isEnabled ? 1 : 0) : null,
+        input.tags !== undefined ? input.tags.join(',') : null,
+        input.isFavorite !== undefined ? (input.isFavorite ? 1 : 0) : null,
         now,
         id,
       ]
@@ -254,6 +260,8 @@ export class ServerService {
       isEnabled: Boolean(row.is_enabled),
       status: row.status as ServerStatusType,
       lastConnectedAt: row.last_connected_at || undefined,
+      tags: row.tags ? String(row.tags).split(',').filter(Boolean) : [],
+      isFavorite: Boolean(row.is_favorite),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

@@ -1,0 +1,19 @@
+{
+  "id": "prometheus-exporter",
+  "name": "Prometheus Exporter",
+  "version": "1.0.0",
+  "description": "Exposes the latest server telemetry at /api/plugins/prometheus-exporter/metrics in Prometheus text format (scrape it with an API token).",
+  "author": "IOC",
+  "main": "index.mjs",
+  "permissions": ["servers.read", "routes"],
+  "ui": {
+    "pages": [
+      {
+        "id": "info",
+        "title": "Prometheus",
+        "icon": "database",
+        "widgets": [{ "type": "text", "title": "Scrape endpoint", "source": "info" }]
+      }
+    ]
+  }
+}

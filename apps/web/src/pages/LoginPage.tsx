@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import { ApiError } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { Server, Lock, User, Mail, ShieldCheck, ArrowRight, Loader2, Eye, EyeOff } from 'lucide-react';
+import { Lock, User, Mail, ShieldCheck, ArrowRight, Loader2, Eye, EyeOff } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
   const { isInitialized, login, setup } = useAuth();
@@ -12,6 +13,8 @@ export const LoginPage: React.FC = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [totp, setTotp] = useState('');
+  const [needsTotp, setNeedsTotp] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -32,31 +35,39 @@ export const LoginPage: React.FC = () => {
     setIsLoading(true);
     try {
       if (isInitialized) {
-        await login({ username, password });
+        await login({ username, password, totp: totp || undefined });
       } else {
         await setup({ username, password, email: email || undefined });
       }
     } catch (err: any) {
-      setError(err.message || 'Authentication failed');
+      if (err instanceof ApiError && err.data?.totpRequired) {
+        setNeedsTotp(true);
+        setError(totp ? err.message : null);
+      } else {
+        setError(err.message || 'Authentication failed');
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#090d16] flex items-center justify-center p-4">
+    <div className="min-h-screen w-full bg-app flex items-center justify-center p-4">
       {/* Background ambient glow */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-sky-600/10 rounded-full blur-3xl pointer-events-none" />
 
-      <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-8 shadow-2xl z-10">
+      <div className="relative w-full max-w-md bg-panel border border-border rounded-xl p-8 shadow-2xl z-10">
         <div className="flex flex-col items-center text-center mb-6">
-          <div className="w-12 h-12 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 mb-3 shadow-lg shadow-sky-500/10">
-            <Server className="w-6 h-6" />
-          </div>
-          <h1 className="text-xl font-bold text-slate-100">
-            Server<span className="text-sky-400">Console</span>
+          <img
+            src="/logo.png"
+            alt="IOC — Infrastructure Operations Console"
+            className="w-16 h-16 rounded-xl object-contain mb-3 shadow-lg shadow-sky-500/10"
+          />
+          <h1 className="text-xl font-bold text-content-primary tracking-wide">
+            <span className="text-sky-400">IOC</span>
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-[11px] text-content-muted -mt-0.5">Infrastructure Operations Console</p>
+          <p className="text-xs text-content-muted mt-2">
             {isInitialized
               ? 'Local-first infrastructure & server control'
               : 'Initial setup: Create administrator credentials'}
@@ -71,9 +82,9 @@ export const LoginPage: React.FC = () => {
 
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
           <div>
-            <label className="block text-slate-300 font-medium mb-1">Username</label>
+            <label className="block text-content-secondary font-medium mb-1">Username</label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-content-muted">
                 <User className="w-4 h-4" />
               </div>
               <input
@@ -83,16 +94,32 @@ export const LoginPage: React.FC = () => {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="admin"
-                className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-700 rounded text-slate-100 placeholder-slate-600 focus:outline-none focus:border-sky-500"
+                className="w-full pl-9 pr-3 py-2 bg-panel-alt border border-border-strong rounded text-content-primary placeholder-content-muted focus:outline-none focus:border-sky-500"
               />
             </div>
           </div>
 
+          {isInitialized && needsTotp && (
+            <div>
+              <label className="block text-content-secondary font-medium mb-1">Two-factor code</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                autoFocus
+                value={totp}
+                onChange={(e) => setTotp(e.target.value)}
+                placeholder="123456 or a recovery code"
+                className="w-full px-3 py-2 bg-panel-alt border border-border-strong rounded text-content-primary placeholder-content-muted focus:outline-none focus:border-sky-500 font-mono tracking-widest"
+              />
+            </div>
+          )}
+
           {!isInitialized && (
             <div>
-              <label className="block text-slate-300 font-medium mb-1">Email (Optional)</label>
+              <label className="block text-content-secondary font-medium mb-1">Email (Optional)</label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-content-muted">
                   <Mail className="w-4 h-4" />
                 </div>
                 <input
@@ -100,16 +127,16 @@ export const LoginPage: React.FC = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="admin@local.host"
-                  className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-700 rounded text-slate-100 placeholder-slate-600 focus:outline-none focus:border-sky-500"
+                  className="w-full pl-9 pr-3 py-2 bg-panel-alt border border-border-strong rounded text-content-primary placeholder-content-muted focus:outline-none focus:border-sky-500"
                 />
               </div>
             </div>
           )}
 
           <div>
-            <label className="block text-slate-300 font-medium mb-1">Password</label>
+            <label className="block text-content-secondary font-medium mb-1">Password</label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-content-muted">
                 <Lock className="w-4 h-4" />
               </div>
               <input
@@ -118,12 +145,12 @@ export const LoginPage: React.FC = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••••••"
-                className="w-full pl-9 pr-10 py-2 bg-slate-950 border border-slate-700 rounded text-slate-100 placeholder-slate-600 focus:outline-none focus:border-sky-500 font-mono"
+                className="w-full pl-9 pr-10 py-2 bg-panel-alt border border-border-strong rounded text-content-primary placeholder-content-muted focus:outline-none focus:border-sky-500 font-mono"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-500 hover:text-slate-300 focus:outline-none transition-colors"
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-content-muted hover:text-content-secondary focus:outline-none transition-colors"
                 title={showPassword ? 'Hide password' : 'Show password'}
               >
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -133,9 +160,9 @@ export const LoginPage: React.FC = () => {
 
           {!isInitialized && (
             <div>
-              <label className="block text-slate-300 font-medium mb-1">Confirm Password</label>
+              <label className="block text-content-secondary font-medium mb-1">Confirm Password</label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-content-muted">
                   <ShieldCheck className="w-4 h-4" />
                 </div>
                 <input
@@ -144,12 +171,12 @@ export const LoginPage: React.FC = () => {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="••••••••••••"
-                  className="w-full pl-9 pr-10 py-2 bg-slate-950 border border-slate-700 rounded text-slate-100 placeholder-slate-600 focus:outline-none focus:border-sky-500 font-mono"
+                  className="w-full pl-9 pr-10 py-2 bg-panel-alt border border-border-strong rounded text-content-primary placeholder-content-muted focus:outline-none focus:border-sky-500 font-mono"
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-500 hover:text-slate-300 focus:outline-none transition-colors"
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-content-muted hover:text-content-secondary focus:outline-none transition-colors"
                   title={showConfirmPassword ? 'Hide password' : 'Show password'}
                 >
                   {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -174,14 +201,14 @@ export const LoginPage: React.FC = () => {
           </button>
         </form>
 
-        <div className="mt-5 p-2.5 rounded bg-slate-950/60 border border-slate-800 text-center text-[11px] text-slate-400">
+        <div className="mt-5 p-2.5 rounded bg-panel-alt/60 border border-border text-center text-[11px] text-content-muted">
           Configured in <span className="font-mono text-sky-400 font-semibold">admin.config.json</span>
-          <div className="text-[10px] text-slate-500 mt-0.5">
-            Default: <code className="text-slate-300 font-mono">admin</code> / <code className="text-slate-300 font-mono">admin1234</code>
+          <div className="text-[10px] text-content-muted mt-0.5">
+            Default: <code className="text-content-secondary font-mono">admin</code> / <code className="text-content-secondary font-mono">admin1234</code>
           </div>
         </div>
 
-        <div className="mt-4 pt-3 border-t border-slate-800/80 text-center text-[11px] text-slate-500">
+        <div className="mt-4 pt-3 border-t border-border/80 text-center text-[11px] text-content-muted">
           Local-first architecture • Zero external credentials exposure
         </div>
       </div>

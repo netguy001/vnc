@@ -35,3 +35,4 @@ npm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+.playwright-mcp/

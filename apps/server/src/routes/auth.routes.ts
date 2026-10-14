@@ -1,6 +1,9 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { authService } from '../services/auth.service.js';
 import { auditService } from '../services/audit.service.js';
+import { accountSecurity } from '../services/account-security.service.js';
+import { loginThrottle } from '../services/security-guard.js';
+import { config } from '../config.js';
 import { LoginSchema, SetupSchema } from '@server-console/shared';
 
 export function registerAuthRoutes(fastify: FastifyInstance): void {
@@ -32,7 +35,7 @@ export function registerAuthRoutes(fastify: FastifyInstance): void {
     reply.setCookie('token', authResult.token, {
       path: '/',
       httpOnly: true,
-      secure: false, // Local dev default; set to true behind HTTPS in prod
+      secure: config.cookieSecure,
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60,
     });
@@ -56,9 +59,25 @@ export function registerAuthRoutes(fastify: FastifyInstance): void {
     }
 
     const { username, password } = parseResult.data;
+
+    const retryAfter = loginThrottle.retryAfter(req.ip, username);
+    if (retryAfter > 0) {
+      auditService.log({
+        action: 'LOGIN_BLOCKED',
+        details: `Login throttled for "${username}" (too many failed attempts)`,
+        success: false,
+        ipAddress: req.ip,
+      });
+      return reply
+        .status(429)
+        .header('Retry-After', String(retryAfter))
+        .send({ error: `Too many failed attempts. Try again in ${Math.ceil(retryAfter / 60)} minute(s).` });
+    }
+
     const authResult = await authService.authenticate(username, password);
 
     if (!authResult) {
+      loginThrottle.recordFailure(req.ip, username);
       auditService.log({
         action: 'LOGIN_FAILURE',
         details: `Failed login attempt for username "${username}"`,
@@ -68,10 +87,31 @@ export function registerAuthRoutes(fastify: FastifyInstance): void {
       return reply.status(401).send({ error: 'Invalid username or password' });
     }
 
+    if (accountSecurity.isTotpEnabled(authResult.user.id)) {
+      const code = parseResult.data.totp?.trim();
+      if (!code) {
+        // Password was right; ask for the second factor without counting it as a failed attempt.
+        return reply.status(401).send({ error: 'Two-factor code required', totpRequired: true });
+      }
+      if (!accountSecurity.verifySecondFactor(authResult.user.id, code)) {
+        loginThrottle.recordFailure(req.ip, username);
+        auditService.log({
+          userId: authResult.user.id,
+          username,
+          action: 'LOGIN_FAILURE',
+          details: 'Invalid two-factor code',
+          success: false,
+          ipAddress: req.ip,
+        });
+        return reply.status(401).send({ error: 'Invalid two-factor code', totpRequired: true });
+      }
+    }
+
+    loginThrottle.reset(req.ip, username);
     reply.setCookie('token', authResult.token, {
       path: '/',
       httpOnly: true,
-      secure: false,
+      secure: config.cookieSecure,
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60,
     });

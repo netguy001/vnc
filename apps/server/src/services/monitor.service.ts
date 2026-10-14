@@ -8,12 +8,20 @@ export class MonitorService {
     const now = new Date().toISOString();
 
     try {
-      // Execute a compound command gathering standard Linux metrics in one roundtrip
+      // Execute a compound command gathering standard Linux metrics in one roundtrip.
+      // CPU usage is computed from two /proc/stat samples 200ms apart (the standard
+      // technique) rather than summing `ps %cpu`, which double-counts across cores
+      // and includes `ps` sampling itself as a process.
       const compoundCmd = `
         echo "===UPTIME==="
         cat /proc/uptime 2>/dev/null || uptime
         echo "===LOADAVG==="
         cat /proc/loadavg 2>/dev/null || true
+        echo "===STAT1==="
+        head -n 1 /proc/stat 2>/dev/null || true
+        sleep 0.2
+        echo "===STAT2==="
+        head -n 1 /proc/stat 2>/dev/null || true
         echo "===FREE==="
         free -b 2>/dev/null || true
         echo "===DF==="
@@ -130,9 +138,9 @@ export class MonitorService {
       }
     }
 
-    // 5. Processes
+    // 5. Processes (for the top-processes table only — not used for headline CPU%,
+    // since %cpu summed across processes double-counts on multi-core systems)
     const topProcesses: ProcessInfo[] = [];
-    let cpuSum = 0;
     if (sections['PS']) {
       const lines = sections['PS'].trim().split('\n');
       for (let i = 1; i < lines.length; i++) {
@@ -145,14 +153,23 @@ export class MonitorService {
           const cpu = parseFloat(parts[2]) || 0;
           const mem = parseFloat(parts[3]) || 0;
           const command = parts.slice(4).join(' ');
-          cpuSum += cpu;
           topProcesses.push({ pid, user, cpu, mem, command });
         }
       }
     }
 
-    // Estimate CPU usage percentage from loadavg or top processes
-    const cpuUsagePercent = Math.min(Math.round(cpuSum), 100);
+    // 6. System-wide CPU usage from two /proc/stat samples (standard delta technique).
+    // Falls back to 0 if either sample is missing/malformed.
+    let cpuUsagePercent = 0;
+    const stat1 = this.parseProcStatLine(sections['STAT1']);
+    const stat2 = this.parseProcStatLine(sections['STAT2']);
+    if (stat1 && stat2) {
+      const totalDelta = stat2.total - stat1.total;
+      const idleDelta = stat2.idle - stat1.idle;
+      if (totalDelta > 0) {
+        cpuUsagePercent = Math.max(0, Math.min(100, Math.round((1 - idleDelta / totalDelta) * 100)));
+      }
+    }
 
     return {
       serverId,
@@ -166,6 +183,21 @@ export class MonitorService {
       disks,
       topProcesses,
     };
+  }
+
+  /**
+   * Parses a line like "cpu  123 0 456 7890 12 0 3 0 0 0" (user, nice, system, idle,
+   * iowait, irq, softirq, steal, guest, guest_nice) into total and idle jiffies.
+   */
+  private parseProcStatLine(section: string | undefined): { total: number; idle: number } | null {
+    if (!section) return null;
+    const line = section.trim().split('\n')[0];
+    if (!line || !line.startsWith('cpu')) return null;
+    const values = line.trim().split(/\s+/).slice(1).map((v) => parseInt(v, 10) || 0);
+    if (values.length < 4) return null;
+    const idle = values[3] + (values[4] || 0); // idle + iowait
+    const total = values.reduce((sum, v) => sum + v, 0);
+    return { total, idle };
   }
 
   private formatBytes(bytes: number): string {

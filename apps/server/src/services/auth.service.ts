@@ -176,6 +176,55 @@ export class AuthService {
     }
   }
 
+  async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
+    const db = getDatabase();
+    const userRow = db.get<{ id: string; password_hash: string }>(
+      'SELECT id, password_hash FROM users WHERE id = ?',
+      [userId]
+    );
+    if (!userRow) {
+      throw new Error('User not found');
+    }
+
+    const valid = await this.verifyPassword(currentPassword, userRow.password_hash);
+    if (!valid) {
+      throw new Error('Current password is incorrect');
+    }
+
+    const passwordHash = await this.hashPassword(newPassword);
+    db.run('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?', [
+      passwordHash,
+      new Date().toISOString(),
+      userId,
+    ]);
+  }
+
+  updateAccount(userId: string, updates: { username?: string; email?: string }): UserDTO {
+    const db = getDatabase();
+    const existing = this.getUserById(userId);
+    if (!existing) {
+      throw new Error('User not found');
+    }
+
+    if (updates.username && updates.username !== existing.username) {
+      const taken = db.get('SELECT id FROM users WHERE username = ? AND id != ?', [updates.username, userId]);
+      if (taken) {
+        throw new Error(`Username "${updates.username}" is already taken`);
+      }
+    }
+
+    db.run('UPDATE users SET username = COALESCE(?, username), email = COALESCE(?, email), updated_at = ? WHERE id = ?', [
+      updates.username ?? null,
+      updates.email ?? null,
+      new Date().toISOString(),
+      userId,
+    ]);
+
+    const updated = this.getUserById(userId);
+    if (!updated) throw new Error('Failed to update account');
+    return updated;
+  }
+
   getUserById(id: string): UserDTO | null {
     const db = getDatabase();
     const userRow = db.get<{

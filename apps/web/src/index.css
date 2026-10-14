@@ -2,9 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
+:root,
+[data-theme="dark"] {
+  --color-app: 9 13 22;              /* #090d16 */
+  --color-panel: 15 23 42;           /* slate-900 */
+  --color-panel-alt: 2 6 23;         /* slate-950 */
+  --color-panel-inset: 10 15 29;     /* #0a0f1d */
+  --color-border: 30 41 59;          /* slate-800 */
+  --color-border-strong: 51 65 85;   /* slate-700 */
+  --color-text-primary: 241 245 249; /* slate-100 */
+  --color-text-secondary: 203 213 225; /* slate-300 */
+  --color-text-muted: 100 116 139;   /* slate-500 */
+}
+
+[data-theme="light"] {
+  --color-app: 232 237 244;          /* soft blue-grey page, so white cards stand out */
+  --color-panel: 255 255 255;        /* white cards */
+  --color-panel-alt: 240 244 249;    /* nested cards / buttons */
+  --color-panel-inset: 248 250 253;  /* workspace wrappers & inputs: lighter than the page, distinct from white cards */
+  --color-border: 205 214 227;       /* clearly visible hairlines */
+  --color-border-strong: 160 174 192;
+  --color-text-primary: 15 23 42;    /* slate-900 */
+  --color-text-secondary: 45 58 79;  /* slate-700+ */
+  --color-text-muted: 85 99 121;     /* AA on both white and the page background */
+}
+
 @layer base {
   body {
-    @apply bg-[#090d16] text-slate-200 font-sans;
+    @apply bg-app text-content-primary font-sans;
     overflow-x: hidden;
   }
 
@@ -36,3 +61,74 @@
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
   border-radius: 4px;
 }
+
+/* ------------------------------------------------------------------------------------------------
+   Light theme refinements. The components use the neon "400" accents and dark tinted chips that read
+   well on the dark theme; here they are remapped to deeper shades so nothing washes out or merges
+   with the background. (Attribute selectors beat the single-class utilities by specificity.)
+   ------------------------------------------------------------------------------------------------ */
+[data-theme="light"] {
+  color-scheme: light;
+}
+
+/* Cards get a soft lift so they separate from the page. */
+[data-theme="light"] .bg-panel,
+[data-theme="light"] [class~="bg-panel/80"],
+[data-theme="light"] [class~="bg-panel/60"],
+[data-theme="light"] [class~="bg-panel/40"] {
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 3px rgb(15 23 42 / 0.04);
+}
+[data-theme="light"] .bg-panel-alt,
+[data-theme="light"] .bg-panel-inset {
+  box-shadow: none;
+}
+
+/* Accent text: 300/400 -> 700 */
+[data-theme="light"] :is(.text-sky-300, .text-sky-400) { color: rgb(3 105 161); }
+[data-theme="light"] :is(.text-emerald-300, .text-emerald-400) { color: rgb(4 120 87); }
+[data-theme="light"] :is(.text-rose-300, .text-rose-400) { color: rgb(190 18 60); }
+[data-theme="light"] :is(.text-amber-300, .text-amber-400) { color: rgb(180 83 9); }
+[data-theme="light"] :is(.text-purple-300, .text-purple-400) { color: rgb(126 34 206); }
+[data-theme="light"] :is(.text-indigo-300, .text-indigo-400) { color: rgb(67 56 202); }
+[data-theme="light"] :is(.text-violet-300, .text-violet-400) { color: rgb(109 40 217); }
+[data-theme="light"] :is(.text-cyan-300, .text-cyan-400) { color: rgb(14 116 144); }
+[data-theme="light"] :is(.text-slate-200, .text-slate-300) { color: rgb(51 65 85); }
+[data-theme="light"] .text-slate-400 { color: rgb(71 85 105); }
+
+[data-theme="light"] .text-sky-200 { color: rgb(7 89 133); }
+[data-theme="light"] .text-emerald-200 { color: rgb(6 95 70); }
+[data-theme="light"] .text-rose-200 { color: rgb(159 18 57); }
+[data-theme="light"] .text-amber-200 { color: rgb(146 64 14); }
+[data-theme="light"] .text-slate-100 { color: rgb(30 41 59); }
+
+/* Dark tinted chips / banners (bg-X-900/950, border-X-800/900) -> light tints */
+[data-theme="light"] [class*="bg-sky-950"], [data-theme="light"] [class*="bg-sky-900"] { background-color: rgb(224 242 254); }
+[data-theme="light"] [class*="bg-emerald-950"], [data-theme="light"] [class*="bg-emerald-900"] { background-color: rgb(209 250 229); }
+[data-theme="light"] [class*="bg-rose-950"], [data-theme="light"] [class*="bg-rose-900"] { background-color: rgb(255 228 230); }
+[data-theme="light"] [class*="bg-amber-950"], [data-theme="light"] [class*="bg-amber-900"] { background-color: rgb(254 243 199); }
+[data-theme="light"] [class*="bg-purple-950"], [data-theme="light"] [class*="bg-purple-900"] { background-color: rgb(243 232 255); }
+[data-theme="light"] [class*="border-sky-8"], [data-theme="light"] [class*="border-sky-9"] { border-color: rgb(125 211 252); }
+[data-theme="light"] [class*="border-emerald-8"], [data-theme="light"] [class*="border-emerald-9"] { border-color: rgb(110 231 183); }
+[data-theme="light"] [class*="border-rose-8"], [data-theme="light"] [class*="border-rose-9"] { border-color: rgb(253 164 175); }
+[data-theme="light"] [class*="border-amber-8"], [data-theme="light"] [class*="border-amber-9"] { border-color: rgb(252 211 77); }
+[data-theme="light"] [class*="border-purple-8"], [data-theme="light"] [class*="border-purple-9"] { border-color: rgb(216 180 254); }
+
+/* Translucent accent tints read stronger on white: nudge the common ones. */
+[data-theme="light"] :is([class~="bg-sky-500/10"], [class~="bg-sky-600/10"], [class~="bg-sky-600/20"]) { background-color: rgb(224 242 254); }
+[data-theme="light"] :is([class~="bg-emerald-500/10"], [class~="bg-emerald-500/15"], [class~="bg-emerald-600/20"]) { background-color: rgb(209 250 229); }
+[data-theme="light"] :is([class~="bg-rose-500/10"], [class~="bg-rose-500/15"], [class~="bg-rose-500/5"]) { background-color: rgb(255 228 230); }
+[data-theme="light"] :is([class~="bg-amber-500/10"], [class~="bg-amber-500/15"], [class~="bg-amber-500/5"]) { background-color: rgb(254 243 199); }
+
+/* Code/log wells that used a translucent black on dark */
+[data-theme="light"] :is([class~="bg-black/40"], [class~="bg-black/30"], [class~="bg-black/20"]) {
+  background-color: rgb(241 245 249);
+  border-color: rgb(205 214 227);
+}
+
+/* Scrollbars */
+[data-theme="light"] ::-webkit-scrollbar-track { background: rgb(232 237 244); }
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgb(160 174 192); }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgb(113 128 150); }
+
+/* Focus rings visible on both themes */
+[data-theme="light"] :is(input, select, textarea):focus { box-shadow: 0 0 0 2px rgb(14 165 233 / 0.25); }
